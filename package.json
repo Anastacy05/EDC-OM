@@ -9,7 +9,10 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "country-state-city": "^3.2.1",
+    "docxtemplater": "^3.69.3",
     "next": "16.2.12",
+    "pizzip": "^3.2.0",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
