@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateOmDocx } from "@/lib/generateOmDocx";
-import type { OrdreMission } from "@/types/om";
+import type { OrdreMissionDocument } from "@/types/om";
 
 // Obligatoire : docxtemplater/pizzip ont besoin de Node (fs, buffers), pas d'Edge.
 export const runtime = "nodejs";
@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 // tard) — cette route ne fait AUCUN appel réseau, elle se contente de générer
 // le fichier à partir de ce qu'on lui donne.
 export async function POST(request: NextRequest) {
-  const om: OrdreMission = await request.json();
+  const om: OrdreMissionDocument = await request.json();
 
   let buffer: Buffer;
   try {

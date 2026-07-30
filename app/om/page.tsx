@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { mockOMs } from "@/lib/mockData";
-import { dureeEnJours, moisDeLaMission, NOMS_MOIS } from "@/lib/dateUtils";
+import { dureeEnJours } from "@/lib/dateUtils";
 
 const statutStyles: Record<string, string> = {
   EN_ATTENTE: "bg-amber-200 text-amber-800",
@@ -16,25 +16,32 @@ const inputClass =
 
 export default function OMListPage() {
   const [filtreNom, setFiltreNom] = useState("");
-  const [filtreLieu, setFiltreLieu] = useState("");
-  const [filtreGrade, setFiltreGrade] = useState("");
+  const [filtreDestination, setFiltreDestination] = useState("");
+  const [filtrePoste, setFiltrePoste] = useState("");
   const [filtreDepartement, setFiltreDepartement] = useState("");
-  const [filtreMois, setFiltreMois] = useState("TOUS");
+  const [periodeDebut, setPeriodeDebut] = useState("");
+  const [periodeFin, setPeriodeFin] = useState("");
   const [dureeMin, setDureeMin] = useState("");
   const [dureeMax, setDureeMax] = useState("");
   const [filtreStatut, setFiltreStatut] = useState("TOUS");
 
-  const omsFiltres = mockOMs.filter((om) => {
-    const matchNom = om.nom?.toLowerCase().includes(filtreNom.toLowerCase());
-    const matchLieu = om.destination?.toLowerCase().includes(filtreLieu.toLowerCase());
-    const matchGrade = om.grade?.toLowerCase().includes(filtreGrade.toLowerCase());
-    const matchDepartement = om.affectation
+  // Un OM peut concerner plusieurs employés — la liste affiche une ligne
+  // par participant, chacune renvoyant vers son document dans le détail.
+  const lignes = mockOMs.flatMap((om) => om.participants.map((participant) => ({ om, participant })));
+
+  const lignesFiltrees = lignes.filter(({ om, participant }) => {
+    const matchNom = participant.nom?.toLowerCase().includes(filtreNom.toLowerCase());
+    const matchDestination = om.destination
+      ?.toLowerCase()
+      .includes(filtreDestination.toLowerCase());
+    const matchPoste = participant.poste?.toLowerCase().includes(filtrePoste.toLowerCase());
+    const matchDepartement = participant.affectation
       ?.toLowerCase()
       .includes(filtreDepartement.toLowerCase());
-    const matchStatut = filtreStatut === "TOUS" || om.statut === filtreStatut;
+    const matchStatut = filtreStatut === "TOUS" || participant.statut === filtreStatut;
 
-    const mois = moisDeLaMission(om.dateDepart);
-    const matchMois = filtreMois === "TOUS" || mois === Number(filtreMois);
+    const matchPeriodeDebut = periodeDebut === "" || (om.dateDepart ?? "") >= periodeDebut;
+    const matchPeriodeFin = periodeFin === "" || (om.dateDepart ?? "") <= periodeFin;
 
     const duree = dureeEnJours(om.dateDepart, om.dateRetour);
     const matchDureeMin = dureeMin === "" || (duree !== null && duree >= Number(dureeMin));
@@ -42,11 +49,12 @@ export default function OMListPage() {
 
     return (
       matchNom &&
-      matchLieu &&
-      matchGrade &&
+      matchDestination &&
+      matchPoste &&
       matchDepartement &&
       matchStatut &&
-      matchMois &&
+      matchPeriodeDebut &&
+      matchPeriodeFin &&
       matchDureeMin &&
       matchDureeMax
     );
@@ -68,7 +76,7 @@ export default function OMListPage() {
       </div>
 
       {/* Filtres */}
-      <div className="bg-white/70 rounded-2xl shadow-md shadow-blue-950/10 p-6 flex flex-wrap gap-3">
+      <div className="bg-white/70 rounded-2xl shadow-md shadow-blue-950/10 p-6 flex flex-wrap gap-3 items-end">
         <input
           type="text"
           placeholder="Nom"
@@ -78,16 +86,16 @@ export default function OMListPage() {
         />
         <input
           type="text"
-          placeholder="Lieu"
-          value={filtreLieu}
-          onChange={(e) => setFiltreLieu(e.target.value)}
+          placeholder="Destination"
+          value={filtreDestination}
+          onChange={(e) => setFiltreDestination(e.target.value)}
           className={inputClass}
         />
         <input
           type="text"
-          placeholder="Grade"
-          value={filtreGrade}
-          onChange={(e) => setFiltreGrade(e.target.value)}
+          placeholder="Poste"
+          value={filtrePoste}
+          onChange={(e) => setFiltrePoste(e.target.value)}
           className={inputClass}
         />
         <input
@@ -98,18 +106,24 @@ export default function OMListPage() {
           className={inputClass}
         />
 
-        <select
-          value={filtreMois}
-          onChange={(e) => setFiltreMois(e.target.value)}
-          className={inputClass}
-        >
-          <option value="TOUS">Tous les mois</option>
-          {NOMS_MOIS.map((nom, index) => (
-            <option key={nom} value={index}>
-              {nom}
-            </option>
-          ))}
-        </select>
+        <label className="flex flex-col gap-1 text-xs text-amber-700">
+          Période — du
+          <input
+            type="date"
+            value={periodeDebut}
+            onChange={(e) => setPeriodeDebut(e.target.value)}
+            className={inputClass}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-amber-700">
+          au
+          <input
+            type="date"
+            value={periodeFin}
+            onChange={(e) => setPeriodeFin(e.target.value)}
+            className={inputClass}
+          />
+        </label>
 
         <input
           type="number"
@@ -144,7 +158,7 @@ export default function OMListPage() {
           <thead>
             <tr className="bg-blue-500 text-white">
               <th className="text-left py-3 px-4">Nom</th>
-              <th className="text-left py-3 px-4">Grade</th>
+              <th className="text-left py-3 px-4">Poste</th>
               <th className="text-left py-3 px-4">Département</th>
               <th className="text-left py-3 px-4">Destination</th>
               <th className="text-left py-3 px-4">Départ</th>
@@ -154,27 +168,30 @@ export default function OMListPage() {
             </tr>
           </thead>
           <tbody>
-            {omsFiltres.map((om, i) => (
+            {lignesFiltrees.map(({ om, participant }, i) => (
               <tr
-                key={om.id}
+                key={participant.id}
                 className={`${i % 2 === 0 ? "bg-white" : "bg-blue-50"} hover:bg-blue-100 transition-colors`}
               >
                 <td className="py-3 px-4">
-                  <Link href={`/om/${om.id}`} className="text-blue-700 font-medium hover:underline">
-                    {om.nom}
+                  <Link
+                    href={`/om/${om.id}?participant=${participant.id}`}
+                    className="text-blue-700 font-medium hover:underline"
+                  >
+                    {participant.nom}
                   </Link>
                 </td>
-                <td className="py-3 px-4">{om.grade}</td>
-                <td className="py-3 px-4">{om.affectation}</td>
+                <td className="py-3 px-4">{participant.poste}</td>
+                <td className="py-3 px-4">{participant.affectation}</td>
                 <td className="py-3 px-4">{om.destination}</td>
                 <td className="py-3 px-4">{om.dateDepart}</td>
                 <td className="py-3 px-4">{om.dateRetour}</td>
                 <td className="py-3 px-4">{dureeEnJours(om.dateDepart, om.dateRetour)} j.</td>
                 <td className="py-3 px-4">
                   <span
-                    className={`px-2 py-1 rounded-full text-xs font-medium ${statutStyles[om.statut] ?? ""}`}
+                    className={`px-2 py-1 rounded-full text-xs font-medium ${statutStyles[participant.statut] ?? ""}`}
                   >
-                    {om.statut}
+                    {participant.statut}
                   </span>
                 </td>
               </tr>
@@ -182,7 +199,7 @@ export default function OMListPage() {
           </tbody>
         </table>
 
-        {omsFiltres.length === 0 && (
+        {lignesFiltrees.length === 0 && (
           <p className="text-center text-amber-700 py-8">
             Aucun ordre de mission ne correspond aux filtres.
           </p>
