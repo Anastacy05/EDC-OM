@@ -67,6 +67,7 @@ export default function NouvelOMPage() {
   // Participants ajoutés au fur et à mesure
   const [participants, setParticipants] = useState<ParticipantDraft[]>([]);
   const [matriculeSaisi, setMatriculeSaisi] = useState("");
+  const [nomSaisi, setNomSaisi] = useState("");
   const [erreurAjout, setErreurAjout] = useState("");
 
   // Flux valider -> aperçu -> enregistrer
@@ -88,11 +89,31 @@ export default function NouvelOMPage() {
   const supprimerEtape = (index: number) =>
     setVisas((prev) => prev.filter((_, i) => i !== index));
 
+  // Deux champs de recherche pour le même employé — chacun se synchronise
+  // sur l'autre dès qu'il y a une correspondance exacte, pour que l'ajout
+  // marche qu'on connaisse le matricule ou juste le nom.
+  const suggestionsMatricules = mockEmployees.map((e) => e.matricule);
+  const suggestionsNoms = mockEmployees.map((e) => `${e.nom} ${e.prenoms}`);
+
+  const handleMatriculeSaisi = (valeur: string) => {
+    setMatriculeSaisi(valeur);
+    const employe = findEmployeeByMatricule(valeur);
+    if (employe) setNomSaisi(`${employe.nom} ${employe.prenoms}`);
+  };
+
+  const handleNomSaisi = (valeur: string) => {
+    setNomSaisi(valeur);
+    const employe = mockEmployees.find((e) => `${e.nom} ${e.prenoms}` === valeur);
+    if (employe) setMatriculeSaisi(employe.matricule);
+  };
+
   const ajouterParticipant = () => {
     setErreurAjout("");
-    const employe = findEmployeeByMatricule(matriculeSaisi);
+    const employe =
+      findEmployeeByMatricule(matriculeSaisi) ??
+      mockEmployees.find((e) => `${e.nom} ${e.prenoms}` === nomSaisi);
     if (!employe) {
-      setErreurAjout("Aucun employé ne correspond à ce matricule.");
+      setErreurAjout("Aucun employé ne correspond à ce matricule ou ce nom.");
       return;
     }
     if (participants.some((p) => p.matricule === employe.matricule)) {
@@ -114,6 +135,7 @@ export default function NouvelOMPage() {
       },
     ]);
     setMatriculeSaisi("");
+    setNomSaisi("");
   };
 
   const retirerParticipant = (matricule: string) =>
@@ -500,21 +522,23 @@ export default function NouvelOMPage() {
       <fieldset className={fieldsetClass}>
         <legend className={legendClass}>Participants</legend>
 
-        <div className="flex gap-2">
-          <input
-            list="liste-matricules"
-            placeholder="Matricule de l'employé"
-            value={matriculeSaisi}
-            onChange={(e) => setMatriculeSaisi(e.target.value)}
-            className={inputClass}
-          />
-          <datalist id="liste-matricules">
-            {mockEmployees.map((e) => (
-              <option key={e.matricule} value={e.matricule}>
-                {e.nom} {e.prenoms}
-              </option>
-            ))}
-          </datalist>
+        <div className="flex gap-2 flex-wrap">
+          <div className="flex-1 min-w-48">
+            <AutocompleteInput
+              placeholder="Matricule de l'employé"
+              value={matriculeSaisi}
+              onChange={handleMatriculeSaisi}
+              suggestions={suggestionsMatricules}
+            />
+          </div>
+          <div className="flex-1 min-w-48">
+            <AutocompleteInput
+              placeholder="Nom de l'employé"
+              value={nomSaisi}
+              onChange={handleNomSaisi}
+              suggestions={suggestionsNoms}
+            />
+          </div>
           <button
             type="button"
             onClick={ajouterParticipant}
