@@ -9,6 +9,15 @@ export function formatDateFR(iso?: string): string {
   return `${jour}/${mois}/${annee}`;
 }
 
+// Les <input type="time"> donnent du "HH:mm" — converti en "HHhmm" pour
+// coller à la convention déjà utilisée sur le document ("07h00").
+export function formatHeureFR(heure?: string): string {
+  if (!heure) return "";
+  const [h, m] = heure.split(":");
+  if (!h || !m) return heure; // déjà dans un autre format, on laisse tel quel
+  return `${h}h${m}`;
+}
+
 // Nombre de jours de mission, bornes incluses (départ et retour comptent tous les deux).
 export function dureeEnJours(dateDepart?: string, dateRetour?: string): number | null {
   if (!dateDepart || !dateRetour) return null;

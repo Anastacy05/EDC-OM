@@ -1,13 +1,18 @@
 "use client";
 
 import { type CSSProperties } from "react";
-import { formatDateFR } from "@/lib/dateUtils";
+import { formatDateFR, formatHeureFR } from "@/lib/dateUtils";
+import type { OrdreMissionDocument } from "@/types/om";
 
 /**
  * Aperçu fac-similé de l'Ordre de Mission — reproduit visuellement les 2 pages
  * du template Word. Les clés de `om` correspondent EXACTEMENT aux balises
  * docxtemplater du template (template_om_avec_balises.docx), donc le même
  * objet sert à la fois à cet aperçu et à l'appel de génération du .docx.
+ *
+ * Un OM peut concerner plusieurs employés, mais ce composant affiche
+ * toujours UN document individuel — c'est lib/buildDocument.ts qui aplatit
+ * mission + participant en OrdreMissionDocument avant de le passer ici.
  *
  * Placer le logo dans /public/logo-edc.jpeg (fichier fourni à côté de ce composant).
  *
@@ -18,51 +23,7 @@ import { formatDateFR } from "@/lib/dateUtils";
  * main par l'agent au retour de mission, hors périmètre de l'application.
  */
 
-// Une étape du trajet (une ligne du tableau VISAS, page 2).
-// Les 6 champs correspondent aux sous-balises de la boucle {#visas} du template.
-export interface VisaLeg {
-  departDe: string;
-  departLe: string;
-  departHeure: string;
-  arriveeA: string;
-  arriveeLe: string;
-  arriveeHeure: string;
-}
-
-// Correspond 1:1 aux balises docxtemplater du template .docx.
-// Tous les champs sont optionnels ici pour permettre un aperçu progressif
-// (formulaire pas encore entièrement rempli) ; à la génération finale du
-// document, valide plutôt via un schéma (zod) côté route API.
-export interface OrdreMission {
-  numeroOM?: string;
-  nom?: string;
-  prenoms?: string;
-  grade?: string;
-  affectation?: string;
-  matricule?: string;
-  situationFamille?: string;
-  indice?: string;
-  destination?: string;
-  viaPassage?: string;
-  motif?: string;
-  financement?: string;
-  moyenTransport?: string;
-  dateDepart?: string;
-  dateRetour?: string;
-  nomEmetteur?: string;
-  gradeEmetteur?: string;
-  fonctionEmetteur?: string;
-  lieuEmission?: string;
-  dateEmission?: string;
-  chapitre?: string;
-  article?: string;
-  paragraphe?: string;
-  exercice?: string;
-  exerciceAnnee?: string;
-  visas?: VisaLeg[];
-}
-
-const sampleOM: OrdreMission = {
+const sampleOM: OrdreMissionDocument = {
   numeroOM: "0142",
   nom: "NKOLO ATANGANA",
   prenoms: "Stacy Julie",
@@ -91,19 +52,19 @@ const sampleOM: OrdreMission = {
   visas: [
     {
       departDe: "Yaoundé",
-      departLe: "28/07/2026",
-      departHeure: "07h00",
+      departLe: "2026-07-28",
+      departHeure: "07:00",
       arriveeA: "Edéa",
-      arriveeLe: "28/07/2026",
-      arriveeHeure: "10h30",
+      arriveeLe: "2026-07-28",
+      arriveeHeure: "10:30",
     },
     {
       departDe: "Edéa",
-      departLe: "28/07/2026",
-      departHeure: "11h00",
+      departLe: "2026-07-28",
+      departHeure: "11:00",
       arriveeA: "Douala",
-      arriveeLe: "28/07/2026",
-      arriveeHeure: "13h00",
+      arriveeLe: "2026-07-28",
+      arriveeHeure: "13:00",
     },
   ],
 };
@@ -141,7 +102,7 @@ function Field({ field, value, wide, style }: FieldProps) {
 }
 
 interface OMPreviewProps {
-  om?: OrdreMission;
+  om?: OrdreMissionDocument;
 }
 
 export default function OMPreview({ om = sampleOM }: OMPreviewProps) {
@@ -392,10 +353,10 @@ export default function OMPreview({ om = sampleOM }: OMPreviewProps) {
                     de <Field field={`visas.${i}.departDe`} value={v.departDe} />
                   </div>
                   <div className="leg-block">
-                    le <Field field={`visas.${i}.departLe`} value={v.departLe} />
+                    le <Field field={`visas.${i}.departLe`} value={formatDateFR(v.departLe)} />
                   </div>
                   <div className="leg-block">
-                    à <Field field={`visas.${i}.departHeure`} value={v.departHeure} /> heures
+                    à <Field field={`visas.${i}.departHeure`} value={formatHeureFR(v.departHeure)} /> heures
                   </div>
                 </td>
                 <td colSpan={4} className="small">
@@ -403,10 +364,10 @@ export default function OMPreview({ om = sampleOM }: OMPreviewProps) {
                     à <Field field={`visas.${i}.arriveeA`} value={v.arriveeA} />
                   </div>
                   <div className="leg-block">
-                    le <Field field={`visas.${i}.arriveeLe`} value={v.arriveeLe} />
+                    le <Field field={`visas.${i}.arriveeLe`} value={formatDateFR(v.arriveeLe)} />
                   </div>
                   <div className="leg-block">
-                    à <Field field={`visas.${i}.arriveeHeure`} value={v.arriveeHeure} /> heures
+                    à <Field field={`visas.${i}.arriveeHeure`} value={formatHeureFR(v.arriveeHeure)} /> heures
                   </div>
                 </td>
                 <td colSpan={4} className="center italic small">

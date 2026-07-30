@@ -1,19 +1,45 @@
 "use client";
 
 import { useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import OMPreview from "@/components/OMPreview";
-import { getMockOM, confirmMockOM, deleteMockOM } from "@/lib/mockData";
-import { formatDateFR } from "@/lib/dateUtils";
+import {
+  getMockOM,
+  confirmerParticipant,
+  annulerParticipant,
+  supprimerParticipant,
+  ajouterFrais,
+} from "@/lib/mockData";
+import { buildDocumentForParticipant } from "@/lib/buildDocument";
+import { formatDateFR, formatHeureFR } from "@/lib/dateUtils";
+
+const statutStyles: Record<string, string> = {
+  EN_ATTENTE: "bg-amber-200 text-amber-800",
+  CONFIRME: "bg-green-200 text-green-800",
+  ANNULE: "bg-red-200 text-red-800",
+};
 
 export default function OMDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const om = getMockOM(id);
-  const [downloading, setDownloading] = useState(false);
-  const [confirming, setConfirming] = useState(false);
+  const participantIdVoulu = searchParams.get("participant");
+  const indexInitial = om
+    ? Math.max(
+        0,
+        om.participants.findIndex((p) => p.id === participantIdVoulu)
+      )
+    : 0;
 
-  if (!om) {
+  const [index, setIndex] = useState(indexInitial);
+  const [tick, setTick] = useState(0); // force le re-rendu après mutation du mock
+  const [downloading, setDownloading] = useState(false);
+  const [nouveauFrais, setNouveauFrais] = useState({ type: "", montant: "" });
+
+  const refresh = () => setTick((t) => t + 1);
+
+  if (!om || om.participants.length === 0) {
     return (
       <div className="min-h-full w-full bg-blue-50 flex items-center justify-center">
         <p className="text-amber-700 text-lg">Ordre de mission introuvable.</p>
@@ -21,19 +47,40 @@ export default function OMDetailPage() {
     );
   }
 
-  const handleConfirm = () => {
-    setConfirming(true);
-    confirmMockOM(om.id);
-    // Rafraîchit la page pour refléter le nouveau statut (mockOMs est en
-    // mémoire, pas de revalidation automatique côté client sans ça).
-    router.refresh();
-    setConfirming(false);
+  const indexClamped = Math.min(index, om.participants.length - 1);
+  const participant = om.participants[indexClamped];
+  const document = buildDocumentForParticipant(om, participant);
+
+  const handleConfirmer = () => {
+    confirmerParticipant(om.id, participant.id);
+    refresh();
   };
 
-  const handleDelete = () => {
-    if (!confirm("Supprimer définitivement cet ordre de mission ?")) return;
-    deleteMockOM(om.id);
-    router.push("/om");
+  const handleAnnuler = () => {
+    if (!confirm(`Annuler l'OM confirmé de ${participant.nom} ?`)) return;
+    annulerParticipant(om.id, participant.id);
+    refresh();
+  };
+
+  const handleSupprimer = () => {
+    if (!confirm(`Supprimer l'OM en attente de ${participant.nom} ?`)) return;
+    supprimerParticipant(om.id, participant.id);
+    if (!getMockOM(om.id)) {
+      router.push("/om"); // c'était le dernier participant, la mission entière a disparu
+      return;
+    }
+    setIndex((i) => Math.max(0, i - 1));
+    refresh();
+  };
+
+  const handleAjouterFraisReel = () => {
+    if (!nouveauFrais.type || !nouveauFrais.montant) return;
+    ajouterFrais(om.id, participant.id, "reel", {
+      type: nouveauFrais.type,
+      montant: Number(nouveauFrais.montant),
+    });
+    setNouveauFrais({ type: "", montant: "" });
+    refresh();
   };
 
   const handleDownload = async () => {
@@ -42,24 +89,27 @@ export default function OMDetailPage() {
       const res = await fetch("/api/generate-om", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // On envoie l'objet OM tel qu'on l'a déjà en mémoire (mock aujourd'hui,
-        // réponse Spring Boot demain) — la route n'a besoin de rien d'autre.
-        // Les dates sont stockées en ISO (pour le filtrage) donc on les
-        // reformate en JJ/MM/AAAA juste avant l'écriture dans le Word.
         body: JSON.stringify({
-          ...om,
-          dateDepart: formatDateFR(om.dateDepart),
-          dateRetour: formatDateFR(om.dateRetour),
-          dateEmission: formatDateFR(om.dateEmission),
+          ...document,
+          dateDepart: formatDateFR(document.dateDepart),
+          dateRetour: formatDateFR(document.dateRetour),
+          dateEmission: formatDateFR(document.dateEmission),
+          visas: document.visas?.map((leg) => ({
+            ...leg,
+            departLe: formatDateFR(leg.departLe),
+            arriveeLe: formatDateFR(leg.arriveeLe),
+            departHeure: formatHeureFR(leg.departHeure),
+            arriveeHeure: formatHeureFR(leg.arriveeHeure),
+          })),
         }),
       });
       if (!res.ok) throw new Error("Échec du téléchargement");
 
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
+      const a = window.document.createElement("a");
       a.href = url;
-      a.download = `ordre_mission_${om.matricule}.docx`;
+      a.download = `ordre_mission_${participant.matricule}.docx`;
       a.click();
       URL.revokeObjectURL(url);
     } finally {
@@ -69,26 +119,67 @@ export default function OMDetailPage() {
 
   return (
     <div className="min-h-full w-full bg-blue-50 py-10">
-      {/* Le fac-similé (OMPreview) reste volontairement neutre / fidèle au
-          document Word imprimé — pas de branding bleu/ambre dessus, et
-          purement en lecture : un OM créé n'est plus modifiable. */}
-      <OMPreview om={om} />
+      {/* Navigation entre les documents si la mission concerne plusieurs employés */}
+      {om.participants.length > 1 && (
+        <div className="max-w-[794px] mx-auto px-4 flex items-center justify-between mb-4">
+          <button
+            onClick={() => setIndex((i) => Math.max(0, i - 1))}
+            disabled={indexClamped === 0}
+            className="py-2 px-4 rounded-full bg-white disabled:opacity-40 shadow-md shadow-blue-950/10"
+          >
+            ← Précédent
+          </button>
+          <span className="text-amber-700 font-medium">
+            Participant {indexClamped + 1} / {om.participants.length} — {participant.nom}
+          </span>
+          <button
+            onClick={() => setIndex((i) => Math.min(om.participants.length - 1, i + 1))}
+            disabled={indexClamped === om.participants.length - 1}
+            className="py-2 px-4 rounded-full bg-white disabled:opacity-40 shadow-md shadow-blue-950/10"
+          >
+            Suivant →
+          </button>
+        </div>
+      )}
 
-      <div className="max-w-[794px] mx-auto px-4 flex justify-center gap-4 flex-wrap">
+      <div className="max-w-[794px] mx-auto px-4 mb-4 flex justify-center">
+        <span
+          className={`px-3 py-1 rounded-full text-sm font-medium ${statutStyles[participant.statut]}`}
+        >
+          {participant.statut}
+        </span>
+      </div>
+
+      {/* Le fac-similé reste neutre / fidèle au document Word — lecture seule */}
+      <OMPreview om={document} />
+
+      <div className="max-w-[794px] mx-auto px-4 flex justify-center gap-4 flex-wrap mt-4">
         <button
-          onClick={handleConfirm}
-          disabled={om.statut === "CONFIRME" || confirming}
+          onClick={handleConfirmer}
+          disabled={participant.statut !== "EN_ATTENTE"}
           className="py-3 px-8 rounded-full bg-green-600 hover:bg-green-700 disabled:bg-green-200
                      disabled:cursor-not-allowed text-white shadow-xl shadow-blue-950/20
                      hover:scale-105 transition-all duration-300"
         >
-          {om.statut === "CONFIRME" ? "Déjà confirmé" : confirming ? "Confirmation…" : "Confirmer"}
+          Confirmer
         </button>
 
         <button
-          onClick={handleDelete}
-          className="py-3 px-8 rounded-full bg-red-600 hover:bg-red-700 text-white
-                     shadow-xl shadow-blue-950/20 hover:scale-105 transition-all duration-300"
+          onClick={handleAnnuler}
+          disabled={participant.statut !== "CONFIRME"}
+          className="py-3 px-8 rounded-full bg-orange-600 hover:bg-orange-700 disabled:bg-orange-200
+                     disabled:cursor-not-allowed text-white shadow-xl shadow-blue-950/20
+                     hover:scale-105 transition-all duration-300"
+        >
+          Annuler
+        </button>
+
+        <button
+          onClick={handleSupprimer}
+          disabled={participant.statut !== "EN_ATTENTE"}
+          className="py-3 px-8 rounded-full bg-red-600 hover:bg-red-700 disabled:bg-red-200
+                     disabled:cursor-not-allowed text-white shadow-xl shadow-blue-950/20
+                     hover:scale-105 transition-all duration-300"
         >
           Supprimer
         </button>
@@ -102,6 +193,55 @@ export default function OMDetailPage() {
         >
           {downloading ? "Génération…" : "Télécharger (Word)"}
         </button>
+      </div>
+
+      {/* Frais — prévisionnels en lecture seule, réels modifiables après la mission */}
+      <div className="max-w-[794px] mx-auto px-4 mt-8 flex flex-col gap-4">
+        <div className="bg-white/70 rounded-2xl shadow-md shadow-blue-950/10 p-6">
+          <h2 className="text-amber-600 font-semibold text-lg mb-3">Frais prévisionnels</h2>
+          {participant.fraisPrevisionnels.length === 0 && (
+            <p className="text-sm text-gray-500">Aucun frais prévisionnel renseigné.</p>
+          )}
+          <ul className="text-sm flex flex-col gap-1">
+            {participant.fraisPrevisionnels.map((f) => (
+              <li key={f.id}>
+                {f.type} — {f.montant.toLocaleString("fr-FR")} FCFA
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="bg-white/70 rounded-2xl shadow-md shadow-blue-950/10 p-6">
+          <h2 className="text-amber-600 font-semibold text-lg mb-3">Frais réels</h2>
+          <ul className="text-sm flex flex-col gap-1 mb-3">
+            {participant.fraisReels.map((f) => (
+              <li key={f.id}>
+                {f.type} — {f.montant.toLocaleString("fr-FR")} FCFA
+              </li>
+            ))}
+          </ul>
+          <div className="flex gap-2">
+            <input
+              placeholder="Type"
+              value={nouveauFrais.type}
+              onChange={(e) => setNouveauFrais((p) => ({ ...p, type: e.target.value }))}
+              className="px-3 py-2 rounded-lg border border-blue-200 bg-white text-sm flex-1"
+            />
+            <input
+              type="number"
+              placeholder="Montant"
+              value={nouveauFrais.montant}
+              onChange={(e) => setNouveauFrais((p) => ({ ...p, montant: e.target.value }))}
+              className="px-3 py-2 rounded-lg border border-blue-200 bg-white text-sm w-32"
+            />
+            <button
+              onClick={handleAjouterFraisReel}
+              className="py-2 px-4 rounded-full bg-blue-300 hover:bg-blue-200 shadow-md shadow-blue-950/20"
+            >
+              Ajouter
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
