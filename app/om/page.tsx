@@ -12,7 +12,7 @@ const statutStyles: Record<string, string> = {
 };
 
 const inputClass =
-  "px-3 py-2 rounded-lg border border-blue-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-400";
+  "px-3 py-2 rounded-lg border border-blue-500 bg-white text-sm placeholder:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-700";
 
 export default function OMListPage() {
   const [filtreNom, setFiltreNom] = useState("");

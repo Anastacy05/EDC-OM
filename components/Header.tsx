@@ -24,7 +24,7 @@ export default function Header() {
                 <div className="p-2 rounded-lg bg-amber-200 hover:bg-amber-300 text-blue-800 shadow-md cursor-pointer shadow-amber-800/20">
                 	FR
                 </div>
-                <div className="p-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-blue-400 shadow-md cursor-pointer shadow-amber-50/20">
+                <div className="p-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-blue-50 shadow-md cursor-pointer shadow-amber-50/20">
                 	Moon
                 </div>
             </div>

@@ -43,8 +43,8 @@ export default function AutocompleteInput({
         }}
         onFocus={() => setOuvert(true)}
         onBlur={() => setTimeout(() => setOuvert(false), 150)}
-        className="w-full px-3 py-2 rounded-lg border border-blue-200 bg-white text-sm
-                   focus:outline-none focus:ring-2 focus:ring-blue-400"
+        className="w-full px-3 py-2 rounded-lg border border-blue-500 bg-white text-sm placeholder:text-gray-700
+                   focus:outline-none focus:ring-2 focus:ring-blue-700"
       />
       {ouvert && resultats.length > 0 && (
         <ul className="absolute z-10 mt-1 w-full max-h-56 overflow-auto rounded-lg

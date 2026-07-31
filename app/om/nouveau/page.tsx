@@ -38,7 +38,7 @@ interface Probleme {
 }
 
 const inputClass =
-  "w-full px-3 py-2 rounded-lg border border-blue-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-400";
+  "w-full px-3 py-2 rounded-lg border border-blue-500 bg-white text-sm placeholder:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-700";
 const fieldsetClass = "bg-white/70 rounded-2xl shadow-md shadow-blue-950/10 p-6 flex flex-col gap-4";
 const legendClass = "text-amber-600 font-semibold px-2 text-lg";
 const gridClass = "grid grid-cols-1 sm:grid-cols-2 gap-4";
@@ -338,7 +338,8 @@ export default function NouvelOMPage() {
 
   // ============ ÉTAPE FORMULAIRE ============
   return (
-    <div className="min-h-full w-full bg-blue-50 flex flex-col gap-8 p-10 max-w-4xl mx-auto">
+    <div className="min-h-full w-full bg-blue-50">
+      <div className="max-w-4xl mx-auto flex flex-col gap-8 p-10">
       <h1 className="text-3xl font-bold italic text-amber-500 drop-shadow-xl">
         Nouvel ordre de mission
       </h1>
@@ -627,6 +628,7 @@ export default function NouvelOMPage() {
         >
           Valider
         </button>
+      </div>
       </div>
     </div>
   );
