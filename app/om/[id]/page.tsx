@@ -8,10 +8,11 @@ import {
   confirmerParticipant,
   annulerParticipant,
   supprimerParticipant,
-  ajouterFrais,
+  // ajouterFrais, // COMMENTÉ (03/08/2026) — frais non gérés par l'appli pour l'instant
 } from "@/lib/mockData";
 import { buildDocumentForParticipant } from "@/lib/buildDocument";
 import { formatDateFR, formatHeureFR } from "@/lib/dateUtils";
+import { verifierConcurrence } from "@/lib/businessRules";
 
 const statutStyles: Record<string, string> = {
   EN_ATTENTE: "bg-amber-200 text-amber-800",
@@ -35,7 +36,7 @@ export default function OMDetailPage() {
   const [index, setIndex] = useState(indexInitial);
   const [tick, setTick] = useState(0); // force le re-rendu après mutation du mock
   const [downloading, setDownloading] = useState(false);
-  const [nouveauFrais, setNouveauFrais] = useState({ type: "", montant: "" });
+  // const [nouveauFrais, setNouveauFrais] = useState({ type: "", montant: "" }); // COMMENTÉ (03/08/2026)
 
   const refresh = () => setTick((t) => t + 1);
 
@@ -51,7 +52,41 @@ export default function OMDetailPage() {
   const participant = om.participants[indexClamped];
   const document = buildDocumentForParticipant(om, participant);
 
+  // La concurrence est vérifiée à la création (avertissement/blocage selon
+  // le statut de l'OM en conflit), mais rien n'empêchait jusqu'ici de
+  // confirmer un OM malgré un conflit devenu bloquant entre-temps (ex : deux
+  // OM en attente créés pour la même personne, dates qui se chevauchent —
+  // aucun blocage à la création puisque aucun des deux n'est encore
+  // confirmé ; puis on confirme le premier, puis le second, sans que rien
+  // ne s'y oppose). On revérifie donc ici, au moment précis de la
+  // confirmation — c'est la seule étape qui rend réellement l'OM "engageant".
   const handleConfirmer = () => {
+    const resultat = verifierConcurrence(
+      participant.matricule,
+      om.dateDepart,
+      om.dateRetour,
+      om.id // exclut l'OM courant lui-même de la recherche de conflits
+    );
+
+    if (resultat.niveau === "blocage") {
+      const conflit = resultat.conflits.find((c) => c.statut === "CONFIRME");
+      alert(
+        `Confirmation impossible : ${participant.nom} a déjà un OM confirmé sur cette période ` +
+          `(${conflit?.destination ?? "autre mission"}, du ${formatDateFR(conflit?.dateDepart)} ` +
+          `au ${formatDateFR(conflit?.dateRetour)}).`
+      );
+      return;
+    }
+
+    if (resultat.niveau === "avertissement") {
+      const conflit = resultat.conflits[0];
+      const continuer = confirm(
+        `Attention : ${participant.nom} a un autre OM en attente sur une période qui se ` +
+          `chevauche (${conflit?.destination ?? "autre mission"}). Confirmer quand même ?`
+      );
+      if (!continuer) return;
+    }
+
     confirmerParticipant(om.id, participant.id);
     refresh();
   };
@@ -73,15 +108,16 @@ export default function OMDetailPage() {
     refresh();
   };
 
-  const handleAjouterFraisReel = () => {
-    if (!nouveauFrais.type || !nouveauFrais.montant) return;
-    ajouterFrais(om.id, participant.id, "reel", {
-      type: nouveauFrais.type,
-      montant: Number(nouveauFrais.montant),
-    });
-    setNouveauFrais({ type: "", montant: "" });
-    refresh();
-  };
+  // COMMENTÉ (03/08/2026) — frais non gérés par l'appli pour l'instant.
+  // const handleAjouterFraisReel = () => {
+  //   if (!nouveauFrais.type || !nouveauFrais.montant) return;
+  //   ajouterFrais(om.id, participant.id, "reel", {
+  //     type: nouveauFrais.type,
+  //     montant: Number(nouveauFrais.montant),
+  //   });
+  //   setNouveauFrais({ type: "", montant: "" });
+  //   refresh();
+  // };
 
   const handleDownload = async () => {
     setDownloading(true);
@@ -195,7 +231,9 @@ export default function OMDetailPage() {
         </button>
       </div>
 
-      {/* Frais — prévisionnels en lecture seule, réels modifiables après la mission */}
+      {/* COMMENTÉ (03/08/2026) — décision : on ne touche pas au verso de
+          l'OM pour l'instant, les frais ne sont plus affichés/gérés ici.
+
       <div className="max-w-[794px] mx-auto px-4 mt-8 flex flex-col gap-4">
         <div className="bg-white/70 rounded-2xl shadow-md shadow-blue-950/10 p-6">
           <h2 className="text-amber-600 font-semibold text-lg mb-3">Frais prévisionnels</h2>
@@ -243,6 +281,8 @@ export default function OMDetailPage() {
           </div>
         </div>
       </div>
+
+      */}
     </div>
   );
 }

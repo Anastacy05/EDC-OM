@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { addMockOM, genererProchainNumeroOM } from "@/lib/mockData";
 import { mockEmployees, findEmployeeByMatricule } from "@/lib/employees";
-import { VILLES_SUGGESTIONS, PAYS_SUGGESTIONS } from "@/lib/locations";
+import { VILLES_SUGGESTIONS /*, PAYS_SUGGESTIONS */ } from "@/lib/locations";
 import { verifierConcurrence, verifierRetraite, verifierQuotaAnnuel } from "@/lib/businessRules";
 import { buildDocumentForParticipant } from "@/lib/buildDocument";
 import AutocompleteInput from "@/components/AutocompleteInput";
@@ -38,7 +38,7 @@ interface Probleme {
 }
 
 const inputClass =
-  "w-full px-3 py-2 rounded-lg border border-blue-500 bg-white text-sm placeholder:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-700";
+  "w-full px-3 py-2 rounded-lg border border-blue-200 bg-white text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-400";
 const fieldsetClass = "bg-white/70 rounded-2xl shadow-md shadow-blue-950/10 p-6 flex flex-col gap-4";
 const legendClass = "text-amber-600 font-semibold px-2 text-lg";
 const gridClass = "grid grid-cols-1 sm:grid-cols-2 gap-4";
@@ -48,7 +48,9 @@ export default function NouvelOMPage() {
 
   // Infos partagées par toute la mission
   const [mission, setMission] = useState<Omit<OrdreMission, "id" | "participants">>({});
-  const [visas, setVisas] = useState<VisaLeg[]>([emptyLeg]);
+  // COMMENTÉ (03/08/2026) — verso non éditable pour l'instant.
+  // const [visas, setVisas] = useState<VisaLeg[]>([emptyLeg]);
+  const visas: VisaLeg[] = []; // toujours vide -> le tableau VISAS reste blanc comme le template
 
   // Infos d'émission — appliquées à tous les participants au moment de
   // l'enregistrement (même officier RH pour tout le lot dans l'immense
@@ -82,12 +84,14 @@ export default function NouvelOMPage() {
     setMission((prev) => ({ ...prev, [field]: value }));
   };
 
-  const setLegField = (index: number, field: keyof VisaLeg, value: string) => {
-    setVisas((prev) => prev.map((leg, i) => (i === index ? { ...leg, [field]: value } : leg)));
-  };
-  const ajouterEtape = () => setVisas((prev) => [...prev, { ...emptyLeg }]);
-  const supprimerEtape = (index: number) =>
-    setVisas((prev) => prev.filter((_, i) => i !== index));
+  // COMMENTÉ (03/08/2026) — décision : on ne touche pas au verso de l'OM
+  // pour l'instant, le tableau VISAS reste vide comme dans le template.
+  // const setLegField = (index: number, field: keyof VisaLeg, value: string) => {
+  //   setVisas((prev) => prev.map((leg, i) => (i === index ? { ...leg, [field]: value } : leg)));
+  // };
+  // const ajouterEtape = () => setVisas((prev) => [...prev, { ...emptyLeg }]);
+  // const supprimerEtape = (index: number) =>
+  //   setVisas((prev) => prev.filter((_, i) => i !== index));
 
   // Deux champs de recherche pour le même employé — chacun se synchronise
   // sur l'autre dès qu'il y a une correspondance exacte, pour que l'ajout
@@ -141,43 +145,45 @@ export default function NouvelOMPage() {
   const retirerParticipant = (matricule: string) =>
     setParticipants((prev) => prev.filter((p) => p.matricule !== matricule));
 
-  const ajouterFraisPrevisionnel = (matricule: string) => {
-    setParticipants((prev) =>
-      prev.map((p) =>
-        p.matricule === matricule
-          ? {
-              ...p,
-              fraisPrevisionnels: [
-                ...p.fraisPrevisionnels,
-                { id: crypto.randomUUID(), type: "", montant: 0 },
-              ],
-            }
-          : p
-      )
-    );
-  };
-
-  const modifierFraisPrevisionnel = (
-    matricule: string,
-    fraisId: string,
-    champ: "type" | "montant" | "description",
-    valeur: string
-  ) => {
-    setParticipants((prev) =>
-      prev.map((p) =>
-        p.matricule !== matricule
-          ? p
-          : {
-              ...p,
-              fraisPrevisionnels: p.fraisPrevisionnels.map((f) =>
-                f.id === fraisId
-                  ? { ...f, [champ]: champ === "montant" ? Number(valeur) : valeur }
-                  : f
-              ),
-            }
-      )
-    );
-  };
+  // COMMENTÉ (03/08/2026) — décision : les frais ne sont plus gérés par
+  // l'appli pour l'instant (même décision que pour le verso/VISAS).
+  // const ajouterFraisPrevisionnel = (matricule: string) => {
+  //   setParticipants((prev) =>
+  //     prev.map((p) =>
+  //       p.matricule === matricule
+  //         ? {
+  //             ...p,
+  //             fraisPrevisionnels: [
+  //               ...p.fraisPrevisionnels,
+  //               { id: crypto.randomUUID(), type: "", montant: 0 },
+  //             ],
+  //           }
+  //         : p
+  //     )
+  //   );
+  // };
+  //
+  // const modifierFraisPrevisionnel = (
+  //   matricule: string,
+  //   fraisId: string,
+  //   champ: "type" | "montant" | "description",
+  //   valeur: string
+  // ) => {
+  //   setParticipants((prev) =>
+  //     prev.map((p) =>
+  //       p.matricule !== matricule
+  //         ? p
+  //         : {
+  //             ...p,
+  //             fraisPrevisionnels: p.fraisPrevisionnels.map((f) =>
+  //               f.id === fraisId
+  //                 ? { ...f, [champ]: champ === "montant" ? Number(valeur) : valeur }
+  //                 : f
+  //             ),
+  //           }
+  //     )
+  //   );
+  // };
 
   // --- Étape "Valider" : règles métier, puis bascule vers l'aperçu ---
   const handleValider = () => {
@@ -402,7 +408,9 @@ export default function NouvelOMPage() {
         </div>
       </fieldset>
 
-      {/* Étapes du trajet */}
+      {/* COMMENTÉ (03/08/2026) — décision : on ne touche pas au verso de
+          l'OM pour l'instant, le tableau VISAS reste vide comme le template.
+
       <fieldset className={fieldsetClass}>
         <legend className={legendClass}>Étapes du trajet</legend>
         {visas.map((leg, i) => (
@@ -478,6 +486,8 @@ export default function NouvelOMPage() {
           + Ajouter une étape
         </button>
       </fieldset>
+
+      */}
 
       {/* Émission — appliquée à tous les participants */}
       <fieldset className={fieldsetClass}>
@@ -576,6 +586,7 @@ export default function NouvelOMPage() {
               </p>
             ))}
 
+            {/* COMMENTÉ (03/08/2026) — frais non gérés par l'appli pour l'instant.
             <div className="flex flex-col gap-2">
               <p className="text-sm text-amber-700">Frais prévisionnels</p>
               {p.fraisPrevisionnels.map((f) => (
@@ -607,6 +618,7 @@ export default function NouvelOMPage() {
                 + Ajouter un frais
               </button>
             </div>
+            */}
           </div>
         ))}
       </fieldset>
