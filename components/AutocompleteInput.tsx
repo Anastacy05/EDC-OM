@@ -8,6 +8,7 @@ interface AutocompleteInputProps {
   suggestions: string[];
   placeholder?: string;
   maxSuggestions?: number;
+  disabled?: boolean;
 }
 
 /**
@@ -22,11 +23,12 @@ export default function AutocompleteInput({
   suggestions,
   placeholder,
   maxSuggestions = 8,
+  disabled = false,
 }: AutocompleteInputProps) {
   const [ouvert, setOuvert] = useState(false);
 
   const resultats =
-    value.trim().length > 0
+    !disabled && value.trim().length > 0
       ? suggestions
           .filter((s) => s.toLowerCase().startsWith(value.trim().toLowerCase()))
           .slice(0, maxSuggestions)
@@ -37,14 +39,16 @@ export default function AutocompleteInput({
       <input
         placeholder={placeholder}
         value={value}
+        disabled={disabled}
         onChange={(e) => {
           onChange(e.target.value);
           setOuvert(true);
         }}
         onFocus={() => setOuvert(true)}
         onBlur={() => setTimeout(() => setOuvert(false), 150)}
-        className="w-full px-3 py-2 rounded-lg border border-blue-500 bg-white text-sm placeholder:text-gray-700
-                   focus:outline-none focus:ring-2 focus:ring-blue-700"
+        className="w-full px-3 py-2 rounded-lg border border-blue-200 bg-white text-sm placeholder:text-gray-500
+                   focus:outline-none focus:ring-2 focus:ring-blue-400
+                   disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400"
       />
       {ouvert && resultats.length > 0 && (
         <ul className="absolute z-10 mt-1 w-full max-h-56 overflow-auto rounded-lg

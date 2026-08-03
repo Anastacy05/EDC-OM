@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { addMockOM, genererProchainNumeroOM } from "@/lib/mockData";
 import { mockEmployees, findEmployeeByMatricule } from "@/lib/employees";
-import { VILLES_SUGGESTIONS /*, PAYS_SUGGESTIONS */ } from "@/lib/locations";
+import { PAYS_SUGGESTIONS, villesDuPays } from "@/lib/locations";
 import { verifierConcurrence, verifierRetraite, verifierQuotaAnnuel } from "@/lib/businessRules";
 import { buildDocumentForParticipant } from "@/lib/buildDocument";
 import AutocompleteInput from "@/components/AutocompleteInput";
@@ -48,6 +48,12 @@ export default function NouvelOMPage() {
 
   // Infos partagées par toute la mission
   const [mission, setMission] = useState<Omit<OrdreMission, "id" | "participants">>({});
+
+  // Destination = "Pays, Ville" — le pays choisit d'abord, la liste de
+  // villes proposées ensuite ne contient que celles de ce pays.
+  const [paysDestination, setPaysDestination] = useState("");
+  const [villeDestination, setVilleDestination] = useState("");
+
   // COMMENTÉ (03/08/2026) — verso non éditable pour l'instant.
   // const [visas, setVisas] = useState<VisaLeg[]>([emptyLeg]);
   const visas: VisaLeg[] = []; // toujours vide -> le tableau VISAS reste blanc comme le template
@@ -82,6 +88,17 @@ export default function NouvelOMPage() {
 
   const setMissionField = (field: keyof typeof mission, value: string) => {
     setMission((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handlePaysChange = (valeur: string) => {
+    setPaysDestination(valeur);
+    setVilleDestination(""); // le pays change -> la ville choisie n'est plus valide
+    setMissionField("destination", valeur);
+  };
+
+  const handleVilleChange = (valeur: string) => {
+    setVilleDestination(valeur);
+    setMissionField("destination", valeur ? `${paysDestination}, ${valeur}` : paysDestination);
   };
 
   // COMMENTÉ (03/08/2026) — décision : on ne touche pas au verso de l'OM
@@ -361,17 +378,28 @@ export default function NouvelOMPage() {
         <legend className={legendClass}>Détails de la mission</legend>
         <div className={gridClass}>
           <AutocompleteInput
-            placeholder="Destination (ville)"
-            value={mission.destination || ""}
-            onChange={(v) => setMissionField("destination", v)}
-            suggestions={VILLES_SUGGESTIONS}
+            placeholder="Pays de destination"
+            value={paysDestination}
+            onChange={handlePaysChange}
+            suggestions={PAYS_SUGGESTIONS}
           />
+          <AutocompleteInput
+            placeholder={paysDestination ? "Ville de destination" : "Choisis d'abord un pays"}
+            value={villeDestination}
+            onChange={handleVilleChange}
+            suggestions={villesDuPays(paysDestination)}
+            disabled={!paysDestination}
+          />
+          {/* COMMENTÉ (03/08/2026) — "en passant par" dépend trop des
+              circonstances du voyage pour être fiable à la saisie ; le
+              champ reste vide, comme convenu.
           <AutocompleteInput
             placeholder="En passant par (ville, si escale)"
             value={mission.viaPassage || ""}
             onChange={(v) => setMissionField("viaPassage", v)}
             suggestions={VILLES_SUGGESTIONS}
           />
+          */}
         </div>
         <textarea
           placeholder="Motif et références"

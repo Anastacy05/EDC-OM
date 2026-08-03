@@ -77,3 +77,34 @@ const autresVilles = City.getAllCities()
 // Le Cameroun (siège EDC) en tête, pour que les suggestions les plus
 // probables remontent en premier.
 export const VILLES_SUGGESTIONS: string[] = [...new Set([...villesCameroun, ...autresVilles])];
+
+// ---------------------------------------------------------------------------
+// Cascade Pays -> Ville : on ne propose des villes que pour le pays choisi.
+// ---------------------------------------------------------------------------
+
+// Nom français -> code ISO, construit une seule fois (même liste que
+// PAYS_SUGGESTIONS, juste indexée dans l'autre sens pour la recherche).
+const codeParNomPays: Record<string, string> = {};
+for (const c of Country.getAllCountries()) {
+  const nomFr = countries.getName(c.isoCode, "fr") ?? c.name;
+  codeParNomPays[nomFr] = c.isoCode;
+}
+
+// Résultats mis en cache par pays — évite de relire/reformater la liste des
+// villes à chaque frappe si l'utilisateur retape dans le champ ville.
+const cacheVillesParPays = new Map<string, string[]>();
+
+export function villesDuPays(nomPaysFr: string): string[] {
+  const code = codeParNomPays[nomPaysFr];
+  if (!code) return []; // pays pas (encore) reconnu -> pas de suggestion de ville
+
+  const dejaEnCache = cacheVillesParPays.get(code);
+  if (dejaEnCache) return dejaEnCache;
+
+  const villes = (City.getCitiesOfCountry(code) ?? [])
+    .map((v) => nomVilleFrancais(v.name))
+    .sort((a, b) => a.localeCompare(b, "fr"));
+
+  cacheVillesParPays.set(code, villes);
+  return villes;
+}
