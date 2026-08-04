@@ -27,7 +27,7 @@ export default function AutocompleteInput({
   onChange,
   suggestions,
   placeholder,
-  maxSuggestions = 8,
+  maxSuggestions = 20,
   disabled = false,
 }: AutocompleteInputProps) {
   const [ouvert, setOuvert] = useState(false);
@@ -39,9 +39,9 @@ export default function AutocompleteInput({
   }, [value]);
 
   const resultats = useMemo(() => {
-    if (disabled || valeurDebounced.trim().length === 0) return [];
+    if (disabled || valeurDebounced.trim().length === 0) return suggestions;
     const recherche = valeurDebounced.trim().toLowerCase();
-    return suggestions.filter((s) => s.toLowerCase().startsWith(recherche)).slice(0, maxSuggestions);
+    return suggestions.filter((s) => s.toLowerCase().includes(recherche));
   }, [disabled, valeurDebounced, suggestions, maxSuggestions]);
 
   return (
@@ -63,9 +63,9 @@ export default function AutocompleteInput({
       {ouvert && resultats.length > 0 && (
         <ul className="absolute z-10 mt-1 w-full max-h-56 overflow-auto rounded-lg
                        border border-blue-200 bg-white shadow-lg shadow-blue-950/10">
-          {resultats.map((s) => (
+          {resultats.map((s,index) => (
             <li
-              key={s}
+              key={index}
               onMouseDown={() => {
                 onChange(s);
                 setOuvert(false);

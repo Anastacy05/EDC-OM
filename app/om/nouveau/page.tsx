@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { addMockOM, genererProchainNumeroOM } from "@/lib/mockData";
 import { mockEmployees, findEmployeeByMatricule } from "@/lib/employees";
@@ -65,7 +66,7 @@ export default function NouvelOMPage() {
     nomEmetteur: "",
     gradeEmetteur: "",
     fonctionEmetteur: "",
-    lieuEmission: "Yaoundé",
+    lieuEmission: "",
     dateEmission: "",
   });
   const setEmissionField = (field: keyof typeof emission, value: string) => {
@@ -99,6 +100,10 @@ export default function NouvelOMPage() {
   const handleVilleChange = (valeur: string) => {
     setVilleDestination(valeur);
     setMissionField("destination", valeur ? `${paysDestination}, ${valeur}` : paysDestination);
+  };
+  
+  const handleLieuChange = (valeur: string) => {
+    setEmissionField("lieuEmission", valeur ?? 'Yaoundé');
   };
 
   // COMMENTÉ (03/08/2026) — décision : on ne touche pas au verso de l'OM
@@ -283,11 +288,12 @@ export default function NouvelOMPage() {
     }
     setNumerosGeneres(numeros);
     setEtape("apercu");
+    window.scrollTo({ top: 0, behavior: 'auto' });
   };
 
   const handleAnnulerBrouillon = () => {
-    if (!confirm("Annuler la création de cet ordre de mission ?")) return;
-    router.push("/om");
+    setEtape("formulaire");
+    window.scrollTo({ top: 0, behavior: 'auto' });
   };
 
   const handleEnregistrer = () => {
@@ -371,9 +377,18 @@ export default function NouvelOMPage() {
   return (
     <div className="min-h-full w-full bg-blue-50">
       <div className="max-w-4xl mx-auto flex flex-col gap-8 p-10">
-      <h1 className="text-3xl font-bold italic text-amber-500 drop-shadow-xl">
-        Nouvel ordre de mission
-      </h1>
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <h1 className="text-3xl font-bold italic text-amber-500 drop-shadow-xl">
+          Nouvel ordre de mission
+        </h1>
+        <Link
+          href="/om"
+          className="py-2 px-5 rounded-full bg-blue-700 hover:bg-blue-800 text-white
+                     shadow-md shadow-blue-950/20 hover:scale-105 transition-all duration-300"
+        >
+          ... Consulter les ordres
+        </Link>
+      </div>
 
       {erreurGenerale && (
         <div className="bg-red-100 border border-red-300 rounded-xl p-4 text-red-700 text-sm">
@@ -392,7 +407,7 @@ export default function NouvelOMPage() {
             suggestions={PAYS_SUGGESTIONS}
           />
           <AutocompleteInput
-            placeholder={paysDestination ? "Ville de destination" : "Choisis d'abord un pays"}
+            placeholder={paysDestination ? "Ville de destination" : "Choisis d'abord un pays pour choisir la ville"}
             value={villeDestination}
             onChange={handleVilleChange}
             suggestions={villesDuPays(paysDestination)}
@@ -542,16 +557,16 @@ export default function NouvelOMPage() {
             className={inputClass}
           />
           <input
-            placeholder="Fonction"
+            placeholder="Fonction de l'émetteur"
             value={emission.fonctionEmetteur}
             onChange={(e) => setEmissionField("fonctionEmetteur", e.target.value)}
             className={inputClass}
           />
-          <input
+          <AutocompleteInput
             placeholder="Lieu d'émission"
             value={emission.lieuEmission}
-            onChange={(e) => setEmissionField("lieuEmission", e.target.value)}
-            className={inputClass}
+            onChange={handleLieuChange}
+            suggestions={villesDuPays("Cameroun")}
           />
           <label className="flex flex-col gap-1 text-sm text-amber-700">
             Date d'émission
