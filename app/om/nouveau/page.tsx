@@ -87,6 +87,9 @@ export default function NouvelOMPage() {
   >({});
   const [numerosGeneres, setNumerosGeneres] = useState<Record<string, string>>({});
 
+  // ✅ NOUVEAU : État pour les erreurs de validation (affichées sous les champs)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
   const setMissionField = (field: keyof typeof mission, value: string) => {
     setMission((prev) => ({ ...prev, [field]: value }));
   };
@@ -210,32 +213,32 @@ export default function NouvelOMPage() {
   // --- Étape "Valider" : règles métier, puis bascule vers l'aperçu ---
   const handleValider = () => {
     setErreurGenerale("");
+    setFieldErrors({}); // ✅ On efface les erreurs précédentes
 
+    const newErrors: Record<string, string> = {};
+    const newAvertissements: Record<string, Probleme[]> = {};
+
+    // ✅ Validation des champs de mission
     if (!mission.dateDepart) {
-      setErreurGenerale("La date de départ est obligatoire.");
-      return;
+      newErrors.dateDepart = "La date de départ est obligatoire.";
+    } else {
+      const aujourdHui = new Date().toISOString().slice(0, 10);
+      if (mission.dateDepart < aujourdHui) {
+        newErrors.dateDepart = "La date de départ ne peut pas être dans le passé.";
+      }
     }
-    const aujourdHui = new Date().toISOString().slice(0, 10);
-    if (mission.dateDepart < aujourdHui) {
-      setErreurGenerale("La période de mission est déjà écoulée.");
-      return;
-    }
+
     if (!mission.dateRetour) {
-      setErreurGenerale("La date de retour est obligatoire.");
-      return;
+      newErrors.dateRetour = "La date de retour est obligatoire.";
+    } else if (mission.dateRetour < mission.dateDepart) {
+      newErrors.dateRetour = "La date de retour ne peut pas être avant la date de départ.";
     }
-    if (mission.dateRetour < mission.dateDepart) {
-      setErreurGenerale("La date de retour ne peut pas être avant la date de départ.");
-      return;
-    }
+
     if (participants.length === 0) {
-      setErreurGenerale("Ajoute au moins un participant.");
-      return;
+      newErrors.participants = "Ajoute au moins un participant.";
     }
 
-    const problemes: Record<string, Probleme[]> = {};
-    let bloque = false;
-
+    // ✅ Validation de chaque participant
     for (const p of participants) {
       const employe = findEmployeeByMatricule(p.matricule);
       const listeProblemes: Probleme[] = [];
@@ -271,13 +274,33 @@ export default function NouvelOMPage() {
         });
       }
 
-      if (listeProblemes.length > 0) problemes[p.matricule] = listeProblemes;
-      if (listeProblemes.some((pr) => pr.bloquant)) bloque = true;
+      // Séparer les bloquants (erreurs) et les avertissements
+      const bloquants = listeProblemes.filter(pb => pb.bloquant);
+      const avertissements = listeProblemes.filter(pb => !pb.bloquant);
+      if (bloquants.length > 0) {
+        newErrors[`participant-${p.matricule}`] = bloquants.map(pb => pb.message).join(" ");
+      }
+      if (avertissements.length > 0) {
+        newAvertissements[p.matricule] = avertissements;
+      }
     }
 
-    setProblemesParParticipant(problemes);
+    // ✅ Si des erreurs bloquantes existent, on les affiche et on reste en formulaire
+    if (Object.keys(newErrors).length > 0) {
+      setFieldErrors(newErrors);
+      setProblemesParParticipant(newAvertissements);
+      // ✅ Scroll vers le premier élément en erreur après le rendu
+      setTimeout(() => {
+        const firstErrorEl = document.querySelector('[data-error="true"]');
+        if (firstErrorEl) {
+          firstErrorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 100);
+      return;
+    }
 
-    if (bloque) return; // on reste sur le formulaire, rien à enregistrer
+    // Sinon, on peut passer à l'aperçu
+    setProblemesParParticipant(newAvertissements); // on garde les avertissements pour l'aperçu
 
     // Génère un numéro d'OM par participant, pour l'aperçu ET l'enregistrement final
     const numeros: Record<string, string> = {};
@@ -293,6 +316,8 @@ export default function NouvelOMPage() {
 
   const handleAnnulerBrouillon = () => {
     setEtape("formulaire");
+    setFieldErrors({}); // ✅ Réinitialisation des erreurs
+    setProblemesParParticipant({});
     window.scrollTo({ top: 0, behavior: 'auto' });
   };
 
@@ -440,22 +465,36 @@ export default function NouvelOMPage() {
             onChange={(e) => setMissionField("moyenTransport", e.target.value)}
             className={inputClass}
           />
-          <label className="flex flex-col gap-1 text-sm text-amber-700">
-            Date de départ
+          {/* ✅ Date de départ avec gestion d'erreur */}
+          <div
+            className="flex flex-col gap-1 text-sm text-amber-700"
+            data-error={fieldErrors.dateDepart ? "true" : undefined}
+          >
+            <label>Date de départ</label>
             <input
               type="date"
               onChange={(e) => setMissionField("dateDepart", e.target.value)}
-              className={inputClass}
+              className={`${inputClass} ${fieldErrors.dateDepart ? "border-red-500" : ""}`}
             />
-          </label>
-          <label className="flex flex-col gap-1 text-sm text-amber-700">
-            Date de retour
+            {fieldErrors.dateDepart && (
+              <p className="text-red-600 text-xs mt-1">{fieldErrors.dateDepart}</p>
+            )}
+          </div>
+          {/* ✅ Date de retour avec gestion d'erreur */}
+          <div
+            className="flex flex-col gap-1 text-sm text-amber-700"
+            data-error={fieldErrors.dateRetour ? "true" : undefined}
+          >
+            <label>Date de retour</label>
             <input
               type="date"
               onChange={(e) => setMissionField("dateRetour", e.target.value)}
-              className={inputClass}
+              className={`${inputClass} ${fieldErrors.dateRetour ? "border-red-500" : ""}`}
             />
-          </label>
+            {fieldErrors.dateRetour && (
+              <p className="text-red-600 text-xs mt-1">{fieldErrors.dateRetour}</p>
+            )}
+          </div>
         </div>
       </fieldset>
 
@@ -581,7 +620,10 @@ export default function NouvelOMPage() {
       </fieldset>
 
       {/* Participants */}
-      <fieldset className={fieldsetClass}>
+      <fieldset
+        className={`${fieldsetClass} ${fieldErrors.participants ? "border-red-500" : ""}`}
+        data-error={fieldErrors.participants ? "true" : undefined}
+      >
         <legend className={legendClass}>Participants</legend>
 
         <div className="flex gap-2 flex-wrap">
@@ -610,9 +652,18 @@ export default function NouvelOMPage() {
           </button>
         </div>
         {erreurAjout && <p className="text-red-600 text-sm">{erreurAjout}</p>}
+        {fieldErrors.participants && (
+          <p className="text-red-600 text-sm mt-2">{fieldErrors.participants}</p>
+        )}
 
         {participants.map((p) => (
-          <div key={p.matricule} className="rounded-xl border border-blue-100 p-4 flex flex-col gap-3">
+          <div
+            key={p.matricule}
+            className={`rounded-xl border p-4 flex flex-col gap-3 ${
+              fieldErrors[`participant-${p.matricule}`] ? "border-red-500" : "border-blue-100"
+            }`}
+            data-error={fieldErrors[`participant-${p.matricule}`] ? "true" : undefined}
+          >
             <div className="flex justify-between items-center">
               <div>
                 <p className="font-medium text-blue-700">
@@ -631,9 +682,15 @@ export default function NouvelOMPage() {
               </button>
             </div>
 
+            {/* ✅ Affichage des erreurs bloquantes pour ce participant */}
+            {fieldErrors[`participant-${p.matricule}`] && (
+              <p className="text-red-600 text-sm">{fieldErrors[`participant-${p.matricule}`]}</p>
+            )}
+
+            {/* ✅ Affichage des avertissements (non bloquants) */}
             {problemesParParticipant[p.matricule]?.map((pb, i) => (
-              <p key={i} className={`text-sm ${pb.bloquant ? "text-red-600" : "text-amber-700"}`}>
-                {pb.bloquant ? "✕" : "⚠"} {pb.message}
+              <p key={i} className="text-amber-700 text-sm">
+                ⚠ {pb.message}
               </p>
             ))}
 

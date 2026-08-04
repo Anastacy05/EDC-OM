@@ -162,7 +162,7 @@ export default function OMDetailPage() {
 
   return (
     <div className="min-h-full w-full bg-blue-50 py-10">
-      <div className="flex items-center justify-between flex-wrap gap-4">
+      <div className="flex items-center justify-between flex-wrap py-10 px-20">
         <h1 className="text-3xl font-bold italic text-amber-500 drop-shadow-xl">
           Détails de l'ordre de mission
         </h1>
