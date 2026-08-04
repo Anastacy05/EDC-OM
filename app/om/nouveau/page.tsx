@@ -215,6 +215,14 @@ export default function NouvelOMPage() {
       setErreurGenerale("La période de mission est déjà écoulée.");
       return;
     }
+    if (!mission.dateRetour) {
+      setErreurGenerale("La date de retour est obligatoire.");
+      return;
+    }
+    if (mission.dateRetour < mission.dateDepart) {
+      setErreurGenerale("La date de retour ne peut pas être avant la date de départ.");
+      return;
+    }
     if (participants.length === 0) {
       setErreurGenerale("Ajoute au moins un participant.");
       return;

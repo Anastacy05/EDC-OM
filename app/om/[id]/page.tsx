@@ -36,6 +36,7 @@ export default function OMDetailPage() {
   const [index, setIndex] = useState(indexInitial);
   const [tick, setTick] = useState(0); // force le re-rendu après mutation du mock
   const [downloading, setDownloading] = useState(false);
+  const [erreurTelechargement, setErreurTelechargement] = useState("");
   // const [nouveauFrais, setNouveauFrais] = useState({ type: "", montant: "" }); // COMMENTÉ (03/08/2026)
 
   const refresh = () => setTick((t) => t + 1);
@@ -121,6 +122,7 @@ export default function OMDetailPage() {
 
   const handleDownload = async () => {
     setDownloading(true);
+    setErreurTelechargement("");
     try {
       const res = await fetch("/api/generate-om", {
         method: "POST",
@@ -148,6 +150,10 @@ export default function OMDetailPage() {
       a.download = `ordre_mission_${participant.matricule}.docx`;
       a.click();
       URL.revokeObjectURL(url);
+    } catch {
+      setErreurTelechargement(
+        "La génération du document a échoué. Réessaie, ou préviens l'équipe technique si ça persiste."
+      );
     } finally {
       setDownloading(false);
     }
@@ -230,6 +236,14 @@ export default function OMDetailPage() {
           {downloading ? "Génération…" : "Télécharger (Word)"}
         </button>
       </div>
+
+      {erreurTelechargement && (
+        <div className="max-w-[794px] mx-auto px-4 mt-4">
+          <div className="bg-red-100 border border-red-300 rounded-xl p-4 text-red-700 text-sm text-center">
+            {erreurTelechargement}
+          </div>
+        </div>
+      )}
 
       {/* COMMENTÉ (03/08/2026) — décision : on ne touche pas au verso de
           l'OM pour l'instant, les frais ne sont plus affichés/gérés ici.

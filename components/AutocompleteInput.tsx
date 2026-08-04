@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 
 interface AutocompleteInputProps {
   value: string;
@@ -16,6 +16,11 @@ interface AutocompleteInputProps {
  * affiche les meilleures correspondances. Volontairement fait à la main
  * (pas de <datalist>) — avec ~148 000 villes, un <datalist> natif serait
  * beaucoup trop lent à charger dans le navigateur.
+ *
+ * Le filtrage est débounced (~150ms) : sur une frappe rapide, on ne
+ * refiltre pas 148 000 entrées à chaque caractère, seulement une fois que
+ * la frappe marque une pause. `useMemo` évite en plus tout recalcul si un
+ * re-render est déclenché sans que `value`/`suggestions` aient changé.
  */
 export default function AutocompleteInput({
   value,
@@ -26,13 +31,18 @@ export default function AutocompleteInput({
   disabled = false,
 }: AutocompleteInputProps) {
   const [ouvert, setOuvert] = useState(false);
+  const [valeurDebounced, setValeurDebounced] = useState(value);
 
-  const resultats =
-    !disabled && value.trim().length > 0
-      ? suggestions
-          .filter((s) => s.toLowerCase().startsWith(value.trim().toLowerCase()))
-          .slice(0, maxSuggestions)
-      : [];
+  useEffect(() => {
+    const timer = setTimeout(() => setValeurDebounced(value), 150);
+    return () => clearTimeout(timer);
+  }, [value]);
+
+  const resultats = useMemo(() => {
+    if (disabled || valeurDebounced.trim().length === 0) return [];
+    const recherche = valeurDebounced.trim().toLowerCase();
+    return suggestions.filter((s) => s.toLowerCase().startsWith(recherche)).slice(0, maxSuggestions);
+  }, [disabled, valeurDebounced, suggestions, maxSuggestions]);
 
   return (
     <div className="relative w-full">

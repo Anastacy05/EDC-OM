@@ -10,7 +10,7 @@ export interface Employee {
   dateNaissance: string; // ISO, pour la règle de départ en retraite
 }
 
-// Simule la table employés côté Spring Boot. À remplacer par un
+// Simule la table employés en base. À remplacer par une vraie requête Prisma
 // GET /api/employes?matricule=... une fois le backend prêt.
 export const mockEmployees: Employee[] = [
   {

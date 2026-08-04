@@ -1,7 +1,7 @@
 // Valeurs définies/modifiées par l'Administrateur OM (cf. cahier des charges).
 // Pas d'écran d'administration pour l'instant (rôles pas encore implémentés)
 // — ce fichier EST la config, en dur. Le jour où l'écran existe, il n'aura
-// qu'à écrire ici (ou dans son équivalent Spring Boot).
+// qu'à écrire ici (ou dans la base PostgreSQL via Prisma une fois branchée).
 
 export const configOM = {
   // Âge à partir duquel un employé ne peut plus partir en mission.

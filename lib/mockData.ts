@@ -140,7 +140,7 @@ export function addMockOM(
 }
 
 // Numéro d'OM séquentiel mock — à remplacer par une vraie séquence côté
-// Spring Boot. Compte simplement les participations déjà enregistrées.
+// PostgreSQL (auto-increment ou séquence dédiée, cf AMELIORATIONS.md #4). Compte simplement les participations déjà enregistrées.
 export function genererProchainNumeroOM(): string {
   const total = mockOMs.reduce((n, om) => n + om.participants.length, 0);
   return String(total + 1).padStart(4, "0");
