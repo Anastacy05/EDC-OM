@@ -1,3 +1,4 @@
+import type { OrdreMission } from "@/types/om";
 import { Country, City } from "country-state-city";
 import countries from "i18n-iso-countries";
 import fr from "i18n-iso-countries/langs/fr.json";
@@ -94,17 +95,47 @@ for (const c of Country.getAllCountries()) {
 // villes à chaque frappe si l'utilisateur retape dans le champ ville.
 const cacheVillesParPays = new Map<string, string[]>();
 
+// Référence unique et stable pour "aucune ville" : un `[]` fraîchement créé
+// à chaque appel invaliderait le cache de normalisation d'AutocompleteInput
+// (indexé par référence de tableau) et referait rendre la liste pour rien.
+const AUCUNE_VILLE: string[] = [];
+
 export function villesDuPays(nomPaysFr: string): string[] {
   const code = codeParNomPays[nomPaysFr];
-  if (!code) return []; // pays pas (encore) reconnu -> pas de suggestion de ville
+  if (!code) return AUCUNE_VILLE; // pays pas (encore) reconnu -> pas de suggestion
 
   const dejaEnCache = cacheVillesParPays.get(code);
   if (dejaEnCache) return dejaEnCache;
 
-  const villes = (City.getCitiesOfCountry(code) ?? [])
-    .map((v) => nomVilleFrancais(v.name))
-    .sort((a, b) => a.localeCompare(b, "fr"));
+  // Dédoublonnage indispensable : un même nom de ville revient plusieurs fois
+  // par pays (120 doublons en France, 5 886 aux États-Unis — communes
+  // homonymes dans des départements/États différents). Comme on ne garde que
+  // le nom, ces entrées sont indistinguables pour l'utilisateur.
+  const villes = [
+    ...new Set((City.getCitiesOfCountry(code) ?? []).map((v) => nomVilleFrancais(v.name))),
+  ].sort((a, b) => a.localeCompare(b, "fr"));
 
   cacheVillesParPays.set(code, villes);
   return villes;
+}
+
+// Pays/ville d'un OM, quelle que soit son ancienneté.
+//
+// Les OM créés depuis l'ajout de `paysDestination`/`villeDestination` les
+// portent explicitement. Les plus anciens (localStorage d'une session
+// précédente) n'ont que la chaîne `destination` — on la redécoupe alors sur
+// la virgule. Sans virgule, on considère que c'est une ville seule : c'était
+// le format avant l'introduction de la cascade pays -> ville.
+export function paysEtVilleDeOM(om: OrdreMission): { pays: string; ville: string } {
+  if (om.paysDestination || om.villeDestination) {
+    return { pays: om.paysDestination ?? "", ville: om.villeDestination ?? "" };
+  }
+
+  const morceaux = (om.destination ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (morceaux.length >= 2) return { pays: morceaux[0], ville: morceaux[1] };
+  return { pays: "", ville: morceaux[0] ?? "" };
 }

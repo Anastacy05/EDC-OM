@@ -49,7 +49,14 @@ export interface Participant {
 // employés sont concernés).
 export interface OrdreMission {
   id: string;
+  // Chaîne composée "Pays, Ville" — c'est elle qui part dans le document
+  // Word (une seule balise `destination` dans le template).
   destination?: string;
+  // Mêmes informations, gardées séparées pour pouvoir filtrer la liste par
+  // pays ou par ville sans redécouper la chaîne. Absentes des OM créés
+  // avant leur introduction : passer par `paysEtVilleDeOM` (lib/locations.ts).
+  paysDestination?: string;
+  villeDestination?: string;
   viaPassage?: string;
   motif?: string;
   financement?: string;

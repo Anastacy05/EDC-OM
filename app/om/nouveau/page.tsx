@@ -8,6 +8,12 @@ import { mockEmployees, findEmployeeByMatricule } from "@/lib/employees";
 import { PAYS_SUGGESTIONS, villesDuPays } from "@/lib/locations";
 import { verifierConcurrence, verifierRetraite, verifierQuotaAnnuel } from "@/lib/businessRules";
 import { buildDocumentForParticipant } from "@/lib/buildDocument";
+import {
+  inputClass,
+  carteClass as fieldsetClass,
+  legendClass,
+  titrePageClass,
+} from "@/lib/styles";
 import AutocompleteInput from "@/components/AutocompleteInput";
 import OMPreview from "@/components/OMPreview";
 import type { OrdreMission, VisaLeg, Frais } from "@/types/om";
@@ -38,10 +44,6 @@ interface Probleme {
   message: string;
 }
 
-const inputClass =
-  "w-full px-3 py-2 rounded-lg border border-blue-200 bg-white text-sm placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-400";
-const fieldsetClass = "bg-white/70 rounded-2xl shadow-md shadow-blue-950/10 p-6 flex flex-col gap-4";
-const legendClass = "text-amber-600 font-semibold px-2 text-lg";
 const gridClass = "grid grid-cols-1 sm:grid-cols-2 gap-4";
 
 export default function NouvelOMPage() {
@@ -94,15 +96,28 @@ export default function NouvelOMPage() {
     setMission((prev) => ({ ...prev, [field]: value }));
   };
 
+  // `destination` (la chaîne composée) alimente le document Word ; `pays`/
+  // `ville` séparés servent aux filtres de la liste. Les deux sont écrits
+  // ensemble pour qu'ils ne puissent jamais diverger.
   const handlePaysChange = (valeur: string) => {
     setPaysDestination(valeur);
     setVilleDestination(""); // le pays change -> la ville choisie n'est plus valide
-    setMissionField("destination", valeur);
+    setMission((prev) => ({
+      ...prev,
+      destination: valeur,
+      paysDestination: valeur,
+      villeDestination: "",
+    }));
   };
 
   const handleVilleChange = (valeur: string) => {
     setVilleDestination(valeur);
-    setMissionField("destination", valeur ? `${paysDestination}, ${valeur}` : paysDestination);
+    setMission((prev) => ({
+      ...prev,
+      destination: valeur ? `${paysDestination}, ${valeur}` : paysDestination,
+      paysDestination,
+      villeDestination: valeur,
+    }));
   };
   
   const handleLieuChange = (valeur: string) => {
@@ -322,7 +337,7 @@ export default function NouvelOMPage() {
   };
 
   const handleEnregistrer = () => {
-    addMockOM(
+    const nouvelle = addMockOM(
       { ...mission, visas },
       participants.map((p) => ({
         matricule: p.matricule,
@@ -338,7 +353,13 @@ export default function NouvelOMPage() {
         fraisPrevisionnels: p.fraisPrevisionnels,
       }))
     );
-    router.push("/om");
+    // On enchaîne directement sur le document du premier participant : c'est
+    // la page qui porte le bouton de téléchargement, et l'utilisateur vient
+    // justement de valider ce document dans l'aperçu. Repli sur la liste si
+    // la mission n'a aucun participant (impossible en pratique — la
+    // validation en exige au moins un — mais évite une URL cassée).
+    const premier = nouvelle.participants[0];
+    router.push(premier ? `/om/${nouvelle.id}?participant=${premier.id}` : "/om");
   };
 
   // ============ ÉTAPE APERÇU ============
@@ -346,7 +367,7 @@ export default function NouvelOMPage() {
     const missionComplete: OrdreMission = { ...mission, id: "brouillon", visas, participants: [] };
     return (
       <div className="min-h-full w-full bg-blue-50 flex flex-col gap-8 p-10">
-        <h1 className="text-3xl font-bold italic text-amber-500 drop-shadow-xl">
+        <h1 className={titrePageClass}>
           Aperçu — {participants.length} document{participants.length > 1 ? "s" : ""}
         </h1>
 
@@ -403,7 +424,7 @@ export default function NouvelOMPage() {
     <div className="min-h-full w-full bg-blue-50">
       <div className="max-w-4xl mx-auto flex flex-col gap-8 p-10">
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <h1 className="text-3xl font-bold italic text-amber-500 drop-shadow-xl">
+        <h1 className={titrePageClass}>
           Nouvel ordre de mission
         </h1>
         <Link
@@ -608,7 +629,7 @@ export default function NouvelOMPage() {
             suggestions={villesDuPays("Cameroun")}
           />
           <label className="flex flex-col gap-1 text-sm text-amber-700">
-            Date d'émission
+            Date d&apos;émission
             <input
               type="date"
               value={emission.dateEmission}

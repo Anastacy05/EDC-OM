@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import OMPreview from "@/components/OMPreview";
 import {
@@ -13,6 +12,7 @@ import {
 } from "@/lib/mockData";
 import { buildDocumentForParticipant } from "@/lib/buildDocument";
 import { formatDateFR, formatHeureFR } from "@/lib/dateUtils";
+import { titrePageClass } from "@/lib/styles";
 import { verifierConcurrence } from "@/lib/businessRules";
 
 const statutStyles: Record<string, string> = {
@@ -163,16 +163,11 @@ export default function OMDetailPage() {
   return (
     <div className="min-h-full w-full bg-blue-50 py-10">
       <div className="flex items-center justify-between flex-wrap py-10 px-20">
-        <h1 className="text-3xl font-bold italic text-amber-500 drop-shadow-xl">
-          Détails de l'ordre de mission
+        <h1 className={titrePageClass}>
+          Détails de l&apos;ordre de mission
         </h1>
-        <Link
-          href="/om"
-          className="py-2 px-5 rounded-full bg-blue-700 hover:bg-blue-800 text-white
-                     shadow-md shadow-blue-950/20 hover:scale-105 transition-all duration-300"
-        >
-          ... Consulter les autres
-        </Link>
+        {/* Le lien "Consulter les autres" a été retiré : le bouton Retour du
+            Header mène désormais à la liste depuis toutes les pages. */}
       </div>
       {/* Navigation entre les documents si la mission concerne plusieurs employés */}
       {om.participants.length > 1 && (

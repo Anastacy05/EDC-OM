@@ -1,9 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { mockOMs } from "@/lib/mockData";
 import { dureeEnJours } from "@/lib/dateUtils";
+import { DEPARTEMENTS, POSTES, libelleDepartement } from "@/lib/referentiels";
+import { PAYS_SUGGESTIONS, villesDuPays, paysEtVilleDeOM } from "@/lib/locations";
+import { filtreInputClass as inputClass, titrePageClass } from "@/lib/styles";
+import AutocompleteInput from "@/components/AutocompleteInput";
 
 const statutStyles: Record<string, string> = {
   EN_ATTENTE: "bg-amber-200 text-amber-800",
@@ -11,12 +15,10 @@ const statutStyles: Record<string, string> = {
   ANNULE: "bg-red-200 text-red-800",
 };
 
-const inputClass =
-  "px-3 py-2 rounded-lg border border-blue-500 bg-white text-sm placeholder:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-700";
-
 export default function OMListPage() {
   const [filtreNom, setFiltreNom] = useState("");
-  const [filtreDestination, setFiltreDestination] = useState("");
+  const [filtrePays, setFiltrePays] = useState("");
+  const [filtreVille, setFiltreVille] = useState("");
   const [filtrePoste, setFiltrePoste] = useState("");
   const [filtreDepartement, setFiltreDepartement] = useState("");
   const [periodeDebut, setPeriodeDebut] = useState("");
@@ -29,15 +31,40 @@ export default function OMListPage() {
   // par participant, chacune renvoyant vers son document dans le détail.
   const lignes = mockOMs.flatMap((om) => om.participants.map((participant) => ({ om, participant })));
 
+  // Noms réellement présents dans les données, pour l'autocomplétion. Le
+  // useMemo est nécessaire : AutocompleteInput met en cache les formes
+  // normalisées dans une WeakMap indexée par la référence du tableau, qu'un
+  // tableau recréé à chaque rendu invaliderait.
+  const nomsSuggeres = useMemo(
+    () =>
+      [...new Set(lignes.map(({ participant }) => participant.nom).filter(Boolean))].sort((a, b) =>
+        a!.localeCompare(b!, "fr")
+      ) as string[],
+    [lignes]
+  );
+
+  const villesDuPaysFiltre = useMemo(() => villesDuPays(filtrePays), [filtrePays]);
+
+  const changerPays = (valeur: string) => {
+    setFiltrePays(valeur);
+    setFiltreVille(""); // le pays change -> la ville sélectionnée n'a plus de sens
+  };
+
   const lignesFiltrees = lignes.filter(({ om, participant }) => {
     const matchNom = participant.nom?.toLowerCase().includes(filtreNom.toLowerCase());
-    const matchDestination = om.destination
-      ?.toLowerCase()
-      .includes(filtreDestination.toLowerCase());
-    const matchPoste = participant.poste?.toLowerCase().includes(filtrePoste.toLowerCase());
-    const matchDepartement = participant.affectation
-      ?.toLowerCase()
-      .includes(filtreDepartement.toLowerCase());
+
+    // Poste et département viennent de référentiels fermés (listes
+    // déroulantes) : on compare à l'identique, pas en "contient" — sinon
+    // "Directeur" remonterait aussi "Directeur Général" et "Directeur
+    // Général Adjoint".
+    const matchPoste = filtrePoste === "" || participant.poste === filtrePoste;
+    const matchDepartement = filtreDepartement === "" || participant.affectation === filtreDepartement;
+
+    // La saisie pays/ville reste libre (autocomplétion), donc "contient".
+    const { pays, ville } = paysEtVilleDeOM(om);
+    const matchPays = pays.toLowerCase().includes(filtrePays.toLowerCase());
+    const matchVille = ville.toLowerCase().includes(filtreVille.toLowerCase());
+
     const matchStatut = filtreStatut === "TOUS" || participant.statut === filtreStatut;
 
     const matchPeriodeDebut = periodeDebut === "" || (om.dateDepart ?? "") >= periodeDebut;
@@ -49,7 +76,8 @@ export default function OMListPage() {
 
     return (
       matchNom &&
-      matchDestination &&
+      matchPays &&
+      matchVille &&
       matchPoste &&
       matchDepartement &&
       matchStatut &&
@@ -63,7 +91,7 @@ export default function OMListPage() {
   return (
     <div className="min-h-full w-full bg-blue-50 flex flex-col gap-8 p-10">
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <h1 className="text-3xl font-bold italic text-amber-500 drop-shadow-xl">
+        <h1 className={titrePageClass}>
           Ordres de mission
         </h1>
         <Link
@@ -77,34 +105,60 @@ export default function OMListPage() {
 
       {/* Filtres */}
       <div className="bg-white/70 rounded-2xl shadow-md shadow-blue-950/10 p-6 flex flex-wrap gap-3 items-end">
-        <input
-          type="text"
-          placeholder="Nom"
-          value={filtreNom}
-          onChange={(e) => setFiltreNom(e.target.value)}
-          className={inputClass}
-        />
-        <input
-          type="text"
-          placeholder="Destination"
-          value={filtreDestination}
-          onChange={(e) => setFiltreDestination(e.target.value)}
-          className={inputClass}
-        />
-        <input
-          type="text"
-          placeholder="Poste"
+        <div className="w-52">
+          <AutocompleteInput
+            value={filtreNom}
+            onChange={setFiltreNom}
+            suggestions={nomsSuggeres}
+            placeholder="Nom"
+          />
+        </div>
+
+        <select
           value={filtrePoste}
           onChange={(e) => setFiltrePoste(e.target.value)}
           className={inputClass}
-        />
-        <input
-          type="text"
-          placeholder="Département"
+        >
+          <option value="">Tous les postes</option>
+          {POSTES.map((p) => (
+            <option key={p.valeur} value={p.valeur}>
+              {p.libelle}
+            </option>
+          ))}
+        </select>
+
+        <select
           value={filtreDepartement}
           onChange={(e) => setFiltreDepartement(e.target.value)}
           className={inputClass}
-        />
+        >
+          <option value="">Tous les départements</option>
+          {DEPARTEMENTS.map((d) => (
+            <option key={d.valeur} value={d.valeur}>
+              {d.libelle}
+            </option>
+          ))}
+        </select>
+
+        {/* Même cascade que le formulaire de création : la ville ne se
+            choisit qu'une fois le pays connu. */}
+        <div className="w-52">
+          <AutocompleteInput
+            value={filtrePays}
+            onChange={changerPays}
+            suggestions={PAYS_SUGGESTIONS}
+            placeholder="Pays"
+          />
+        </div>
+        <div className="w-52">
+          <AutocompleteInput
+            value={filtreVille}
+            onChange={setFiltreVille}
+            suggestions={villesDuPaysFiltre}
+            disabled={!filtrePays}
+            placeholder={filtrePays ? "Ville" : "Choisis d'abord un pays"}
+          />
+        </div>
 
         <label className="flex flex-col gap-1 text-xs text-amber-700">
           Période — du
@@ -182,7 +236,12 @@ export default function OMListPage() {
                   </Link>
                 </td>
                 <td className="py-3 px-4">{participant.poste}</td>
-                <td className="py-3 px-4">{participant.affectation}</td>
+                <td
+                  className="py-3 px-4"
+                  title={libelleDepartement(participant.affectation)}
+                >
+                  {participant.affectation}
+                </td>
                 <td className="py-3 px-4">{om.destination}</td>
                 <td className="py-3 px-4">{om.dateDepart}</td>
                 <td className="py-3 px-4">{om.dateRetour}</td>
