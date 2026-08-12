@@ -2,9 +2,14 @@ export interface Employee {
   matricule: string;
   nom: string;
   prenoms: string;
+  // Titre statutaire attaché à la personne, lié à l'indice ci-dessous.
+  // Champ libre : il dépend du corps (ingénieur, administrateur civil...).
   grade: string;
-  poste: string; // distinct du grade — c'est sur le poste que porte le quota annuel
-  affectation: string;
+  // Emploi occupé dans l'organigramme — valeur du référentiel POSTES
+  // (lib/referentiels.ts). C'est aussi sur le poste que porte le quota
+  // annuel de missions (lib/config.ts).
+  poste: string;
+  affectation: string; // code du référentiel DEPARTEMENTS (lib/referentiels.ts)
   situationFamille: string;
   indice: string;
   dateNaissance: string; // ISO, pour la règle de départ en retraite
@@ -18,7 +23,7 @@ export const mockEmployees: Employee[] = [
     nom: "NKOLO ATANGANA",
     prenoms: "Stacy Julie",
     grade: "Ingénieur Stagiaire",
-    poste: "Ingénieur Sécurité Réseaux",
+    poste: "Cadre",
     affectation: "DEX",
     situationFamille: "Célibataire",
     indice: "410",
@@ -29,8 +34,8 @@ export const mockEmployees: Employee[] = [
     nom: "MBO",
     prenoms: "Alain",
     grade: "Ingénieur Principal",
-    poste: "Chef de Département DRH",
-    affectation: "DRH",
+    poste: "Directeur",
+    affectation: "RH",
     situationFamille: "Marié",
     indice: "620",
     // Volontairement proche de l'âge de retraite par défaut (60 ans en 2026)
@@ -42,7 +47,7 @@ export const mockEmployees: Employee[] = [
     nom: "TEDONGMOUO",
     prenoms: "Abel",
     grade: "Ingénieur",
-    poste: "Responsable Infrastructure",
+    poste: "Chef de Service",
     affectation: "DEX",
     situationFamille: "Marié",
     indice: "540",
@@ -53,8 +58,8 @@ export const mockEmployees: Employee[] = [
     nom: "FOUPOUAGNIGNI",
     prenoms: "Nassair",
     grade: "Ingénieur Principal",
-    poste: "Chef de Projet",
-    affectation: "SDARHAS",
+    poste: "Sous-Directeur",
+    affectation: "DSI",
     situationFamille: "Célibataire",
     indice: "580",
     dateNaissance: "1988-01-09",

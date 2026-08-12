@@ -13,11 +13,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="fr">
       <body className="bg-blue-50">
-        <div className="h-screen w-screen flex flex-col">
+        {/* min-h-dvh (et non h-screen) : sur mobile, dvh suit la barre
+            d'adresse qui se rétracte, et `min-` laisse la page grandir au
+            lieu de piéger le contenu dans un conteneur à scroll interne.
+            w-screen est volontairement absent : il vaut 100vw, barre de
+            défilement comprise, ce qui provoque un débordement horizontal. */}
+        <div className="min-h-dvh flex flex-col">
           <Header />
-          <main className="flex-1 min-h-0 overflow-auto">{children}</main>
+          <main className="flex-1">{children}</main>
         </div>
       </body>
     </html>
