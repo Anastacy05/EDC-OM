@@ -61,13 +61,11 @@ export default function NouvelOMPage() {
   // const [visas, setVisas] = useState<VisaLeg[]>([emptyLeg]);
   const visas: VisaLeg[] = []; // toujours vide -> le tableau VISAS reste blanc comme le template
 
-  // Infos d'émission — appliquées à tous les participants au moment de
-  // l'enregistrement (même officier RH pour tout le lot dans l'immense
-  // majorité des cas). Champ par champ dans types/om.ts, pas dans OrdreMission.
+  // Infos d'émission — appliquées à tous les participants
   const [emission, setEmission] = useState({
-    nomEmetteur: "",
+    nomEmetteur: "EDC",
     gradeEmetteur: "",
-    fonctionEmetteur: "",
+    fonctionEmetteur: "Le Directeur Général",
     lieuEmission: "",
     dateEmission: "",
   });
@@ -187,43 +185,43 @@ export default function NouvelOMPage() {
 
   // COMMENTÉ (03/08/2026) — décision : les frais ne sont plus gérés par
   // l'appli pour l'instant (même décision que pour le verso/VISAS).
-  // const ajouterFraisPrevisionnel = (matricule: string) => {
-  //   setParticipants((prev) =>
-  //     prev.map((p) =>
-  //       p.matricule === matricule
-  //         ? {
-  //             ...p,
-  //             fraisPrevisionnels: [
-  //               ...p.fraisPrevisionnels,
-  //               { id: crypto.randomUUID(), type: "", montant: 0 },
-  //             ],
-  //           }
-  //         : p
-  //     )
-  //   );
-  // };
-  //
-  // const modifierFraisPrevisionnel = (
-  //   matricule: string,
-  //   fraisId: string,
-  //   champ: "type" | "montant" | "description",
-  //   valeur: string
-  // ) => {
-  //   setParticipants((prev) =>
-  //     prev.map((p) =>
-  //       p.matricule !== matricule
-  //         ? p
-  //         : {
-  //             ...p,
-  //             fraisPrevisionnels: p.fraisPrevisionnels.map((f) =>
-  //               f.id === fraisId
-  //                 ? { ...f, [champ]: champ === "montant" ? Number(valeur) : valeur }
-  //                 : f
-  //             ),
-  //           }
-  //     )
-  //   );
-  // };
+  const ajouterFraisPrevisionnel = (matricule: string) => {
+    setParticipants((prev) =>
+      prev.map((p) =>
+        p.matricule === matricule
+          ? {
+              ...p,
+              fraisPrevisionnels: [
+                ...p.fraisPrevisionnels,
+                { id: crypto.randomUUID(), type: "", montant: 0 },
+              ],
+            }
+          : p
+      )
+    );
+  };
+ 
+  const modifierFraisPrevisionnel = (
+    matricule: string,
+    fraisId: string,
+    champ: "type" | "montant" | "description",
+    valeur: string
+  ) => {
+    setParticipants((prev) =>
+      prev.map((p) =>
+       p.matricule !== matricule
+          ? p
+          : {
+              ...p,
+              fraisPrevisionnels: p.fraisPrevisionnels.map((f) =>
+                f.id === fraisId
+                  ? { ...f, [champ]: champ === "montant" ? Number(valeur) : valeur }
+                  : f
+              ),
+            }
+      )
+    );
+  };
 
   // --- Étape "Valider" : règles métier, puis bascule vers l'aperçu ---
   const handleValider = () => {
@@ -441,6 +439,82 @@ export default function NouvelOMPage() {
           {erreurGenerale}
         </div>
       )}
+      
+      {/* Participants */}
+      <fieldset
+        className={`${fieldsetClass} ${fieldErrors.participants ? "border-red-500" : ""}`}
+        data-error={fieldErrors.participants ? "true" : undefined}
+      >
+        <legend className={legendClass}>Participants</legend>
+
+        <div className="flex gap-2 flex-wrap">
+          <div className="flex-1 min-w-48">
+            <AutocompleteInput
+              placeholder="Matricule de l'employé"
+              value={matriculeSaisi}
+              onChange={handleMatriculeSaisi}
+              suggestions={suggestionsMatricules}
+            />
+          </div>
+          <div className="flex-1 min-w-48">
+            <AutocompleteInput
+              placeholder="Nom de l'employé"
+              value={nomSaisi}
+              onChange={handleNomSaisi}
+              suggestions={suggestionsNoms}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={ajouterParticipant}
+            className="py-2 px-4 rounded-full bg-blue-300 hover:bg-blue-200 shadow-md shadow-blue-950/20 whitespace-nowrap"
+          >
+            + Ajouter
+          </button>
+        </div>
+        {erreurAjout && <p className="text-red-600 text-sm">{erreurAjout}</p>}
+        {fieldErrors.participants && (
+          <p className="text-red-600 text-sm mt-2">{fieldErrors.participants}</p>
+        )}
+
+        {participants.map((p) => (
+          <div
+            key={p.matricule}
+            className={`rounded-xl border p-4 flex flex-col gap-3 ${
+              fieldErrors[`participant-${p.matricule}`] ? "border-red-500" : "border-blue-100"
+            }`}
+            data-error={fieldErrors[`participant-${p.matricule}`] ? "true" : undefined}
+          >
+            <div className="flex justify-between items-center">
+              <div>
+                <p className="font-medium text-blue-700">
+                  {p.nom} {p.prenoms}
+                </p>
+                <p className="text-sm text-gray-500">
+                  {p.poste} — {p.matricule}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => retirerParticipant(p.matricule)}
+                className="text-sm text-red-600 hover:underline"
+              >
+                Retirer
+              </button>
+            </div>
+
+            {/* ✅ Affichage des erreurs bloquantes pour ce participant */}
+            {fieldErrors[`participant-${p.matricule}`] && (
+              <p className="text-red-600 text-sm">{fieldErrors[`participant-${p.matricule}`]}</p>
+            )}
+
+            {/* ✅ Affichage des avertissements (non bloquants) */}
+            {problemesParParticipant[p.matricule]?.map((pb, i) => (
+              <p key={i} className="text-amber-700 text-sm">
+                ⚠ {pb.message}
+              </p>
+            ))}
+      </fieldset>
 
       {/* Mission */}
       <fieldset className={fieldsetClass}>
@@ -604,24 +678,6 @@ export default function NouvelOMPage() {
       <fieldset className={fieldsetClass}>
         <legend className={legendClass}>Émission</legend>
         <div className={gridClass}>
-          <input
-            placeholder="Nom de l'émetteur"
-            value={emission.nomEmetteur}
-            onChange={(e) => setEmissionField("nomEmetteur", e.target.value)}
-            className={inputClass}
-          />
-          <input
-            placeholder="Grade de l'émetteur"
-            value={emission.gradeEmetteur}
-            onChange={(e) => setEmissionField("gradeEmetteur", e.target.value)}
-            className={inputClass}
-          />
-          <input
-            placeholder="Fonction de l'émetteur"
-            value={emission.fonctionEmetteur}
-            onChange={(e) => setEmissionField("fonctionEmetteur", e.target.value)}
-            className={inputClass}
-          />
           <AutocompleteInput
             placeholder="Lieu d'émission"
             value={emission.lieuEmission}
@@ -638,118 +694,6 @@ export default function NouvelOMPage() {
             />
           </label>
         </div>
-      </fieldset>
-
-      {/* Participants */}
-      <fieldset
-        className={`${fieldsetClass} ${fieldErrors.participants ? "border-red-500" : ""}`}
-        data-error={fieldErrors.participants ? "true" : undefined}
-      >
-        <legend className={legendClass}>Participants</legend>
-
-        <div className="flex gap-2 flex-wrap">
-          <div className="flex-1 min-w-48">
-            <AutocompleteInput
-              placeholder="Matricule de l'employé"
-              value={matriculeSaisi}
-              onChange={handleMatriculeSaisi}
-              suggestions={suggestionsMatricules}
-            />
-          </div>
-          <div className="flex-1 min-w-48">
-            <AutocompleteInput
-              placeholder="Nom de l'employé"
-              value={nomSaisi}
-              onChange={handleNomSaisi}
-              suggestions={suggestionsNoms}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={ajouterParticipant}
-            className="py-2 px-4 rounded-full bg-blue-300 hover:bg-blue-200 shadow-md shadow-blue-950/20 whitespace-nowrap"
-          >
-            + Ajouter
-          </button>
-        </div>
-        {erreurAjout && <p className="text-red-600 text-sm">{erreurAjout}</p>}
-        {fieldErrors.participants && (
-          <p className="text-red-600 text-sm mt-2">{fieldErrors.participants}</p>
-        )}
-
-        {participants.map((p) => (
-          <div
-            key={p.matricule}
-            className={`rounded-xl border p-4 flex flex-col gap-3 ${
-              fieldErrors[`participant-${p.matricule}`] ? "border-red-500" : "border-blue-100"
-            }`}
-            data-error={fieldErrors[`participant-${p.matricule}`] ? "true" : undefined}
-          >
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="font-medium text-blue-700">
-                  {p.nom} {p.prenoms}
-                </p>
-                <p className="text-sm text-gray-500">
-                  {p.poste} — {p.matricule}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => retirerParticipant(p.matricule)}
-                className="text-sm text-red-600 hover:underline"
-              >
-                Retirer
-              </button>
-            </div>
-
-            {/* ✅ Affichage des erreurs bloquantes pour ce participant */}
-            {fieldErrors[`participant-${p.matricule}`] && (
-              <p className="text-red-600 text-sm">{fieldErrors[`participant-${p.matricule}`]}</p>
-            )}
-
-            {/* ✅ Affichage des avertissements (non bloquants) */}
-            {problemesParParticipant[p.matricule]?.map((pb, i) => (
-              <p key={i} className="text-amber-700 text-sm">
-                ⚠ {pb.message}
-              </p>
-            ))}
-
-            {/* COMMENTÉ (03/08/2026) — frais non gérés par l'appli pour l'instant.
-            <div className="flex flex-col gap-2">
-              <p className="text-sm text-amber-700">Frais prévisionnels</p>
-              {p.fraisPrevisionnels.map((f) => (
-                <div key={f.id} className="flex gap-2">
-                  <input
-                    placeholder="Type (transport, hébergement...)"
-                    value={f.type}
-                    onChange={(e) =>
-                      modifierFraisPrevisionnel(p.matricule, f.id, "type", e.target.value)
-                    }
-                    className={inputClass}
-                  />
-                  <input
-                    type="number"
-                    placeholder="Montant"
-                    value={f.montant || ""}
-                    onChange={(e) =>
-                      modifierFraisPrevisionnel(p.matricule, f.id, "montant", e.target.value)
-                    }
-                    className={`${inputClass} w-32`}
-                  />
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => ajouterFraisPrevisionnel(p.matricule)}
-                className="self-start text-sm text-blue-700 hover:underline"
-              >
-                + Ajouter un frais
-              </button>
-            </div>
-            */}
-          </div>
-        ))}
       </fieldset>
 
       <div className="flex justify-center gap-4">
