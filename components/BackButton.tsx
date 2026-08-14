@@ -3,23 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-/**
- * Bouton de retour affiché dans le Header, sur toutes les pages sauf
- * l'accueil.
- *
- * Il remonte d'un niveau dans l'arborescence plutôt que de refaire
- * `router.back()` : la destination est ainsi toujours la même quel que soit
- * le chemin emprunté. Avec l'historique, on retomberait par exemple sur
- * l'aperçu d'un brouillon déjà enregistré.
- *
- *   /om/nouveau  -> /om
- *   /om/<id>     -> /om
- *   /om          -> /
- *   /            -> rien (pas de parent)
- *
- * Composant client isolé exprès : `usePathname` forcerait sinon tout le
- * Header (et son <Image>) à basculer côté client.
- */
 export default function BackButton() {
   const pathname = usePathname();
 
