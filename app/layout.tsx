@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Header from "@/components/Header";
-import { BrouillonProvider } from "@/lib/brouillonContext";
+import { BrouillonProvider } from "@/contexts/brouillonContext";
 
 export const metadata: Metadata = {
   title: "EDC OM",
