@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { mockOMs } from "@/lib/mockData";
 import { dureeEnJours } from "@/lib/dateUtils";
 import { DEPARTEMENTS, POSTES, libelleDepartement } from "@/lib/referentiels";
@@ -16,13 +17,19 @@ const statutStyles: Record<string, string> = {
 };
 
 export default function OMListPage() {
+  // Pré-remplissage depuis l'URL — utilisé par les pages de rapports
+  // (carte/frise/pyramide) pour arriver ici avec le bon filtre déjà en
+  // place. Lu une seule fois à l'ouverture (useState paresseux) : après
+  // coup, c'est l'utilisateur qui pilote les filtres, pas l'URL.
+  const searchParams = useSearchParams();
   const [filtreNom, setFiltreNom] = useState("");
-  const [filtrePays, setFiltrePays] = useState("");
+  const [filtrePays, setFiltrePays] = useState(() => searchParams.get("pays") ?? "");
   const [filtreVille, setFiltreVille] = useState("");
   const [filtrePoste, setFiltrePoste] = useState("");
   const [filtreDepartement, setFiltreDepartement] = useState("");
-  const [periodeDebut, setPeriodeDebut] = useState("");
-  const [periodeFin, setPeriodeFin] = useState("");
+  const [filtreMatricule, setFiltreMatricule] = useState(() => searchParams.get("matricule") ?? "");
+  const [periodeDebut, setPeriodeDebut] = useState(() => searchParams.get("debut") ?? "");
+  const [periodeFin, setPeriodeFin] = useState(() => searchParams.get("fin") ?? "");
   const [dureeMin, setDureeMin] = useState("");
   const [dureeMax, setDureeMax] = useState("");
   const [filtreStatut, setFiltreStatut] = useState("TOUS");
@@ -67,6 +74,11 @@ export default function OMListPage() {
 
     const matchStatut = filtreStatut === "TOUS" || participant.statut === filtreStatut;
 
+    // Exact, contrairement aux autres champs texte : c'est un identifiant,
+    // pas une recherche libre — vient du clic sur un employé dans le modal
+    // de la pyramide, jamais tapé à la main.
+    const matchMatricule = filtreMatricule === "" || participant.matricule === filtreMatricule;
+
     const matchPeriodeDebut = periodeDebut === "" || (om.dateDepart ?? "") >= periodeDebut;
     const matchPeriodeFin = periodeFin === "" || (om.dateDepart ?? "") <= periodeFin;
 
@@ -81,6 +93,7 @@ export default function OMListPage() {
       matchPoste &&
       matchDepartement &&
       matchStatut &&
+      matchMatricule &&
       matchPeriodeDebut &&
       matchPeriodeFin &&
       matchDureeMin &&
@@ -102,6 +115,17 @@ export default function OMListPage() {
           + Nouvel ordre de mission
         </Link>
       </div>
+
+      {filtreMatricule && (
+        <div className="bg-amber-100 border border-amber-300 rounded-xl px-4 py-2 flex items-center justify-between text-sm text-amber-800">
+          <span>
+            Filtré sur l&apos;employé {filtreMatricule} — venu d&apos;un rapport.
+          </span>
+          <button onClick={() => setFiltreMatricule("")} className="underline hover:no-underline">
+            Retirer ce filtre
+          </button>
+        </div>
+      )}
 
       {/* Filtres */}
       <div className="bg-white/70 rounded-2xl shadow-md shadow-blue-950/10 p-6 flex flex-wrap gap-3 items-end">
