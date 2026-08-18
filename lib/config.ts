@@ -8,51 +8,26 @@
 //
 // ⚠️ Pas encore de contrôle d'accès : les rôles ne sont pas implémentés, donc
 // n'importe qui atteignant /admin peut écrire ici.
+//
+// Le quota annuel de missions par poste, qui vivait ici, a été retiré à la
+// demande du boss (considéré inutile) — cf. historique git pour la version
+// avec `tauxMissionAnnuelParPoste`/`quotaAnnuelPourPoste` si jamais il fallait
+// la réintroduire.
 
 export interface ConfigOM {
   // Âge à partir duquel un employé ne peut plus partir en mission.
   ageRetraite: number;
-
-  // Nombre maximum de missions par an, selon le POSTE occupé (pas le grade :
-  // c'est la fonction dans l'organigramme qui justifie de se déplacer, pas le
-  // titre statutaire). Les clés sont les valeurs du référentiel POSTES
-  // (lib/referentiels.ts) — toute clé qui n'y correspond pas est morte.
-  //
-  // Une clé ABSENTE vaut "illimité" (cf. quotaAnnuelPourPoste). C'est le seul
-  // encodage possible de l'illimité : Infinity ne survit pas à
-  // JSON.stringify, qui le transforme en null.
-  tauxMissionAnnuelParPoste: Record<string, number>;
 }
 
-// Les plafonds croissent avec le niveau hiérarchique. ⚠️ Valeurs à faire
-// valider par les RH : elles sont plausibles, pas officielles.
-//
-// PCA et Membre du Conseil d'Administration sont volontairement absents : ce
-// sont des mandats de gouvernance, non soumis à un quota. L'écran /admin les
-// affiche quand même (il lit POSTES, pas ces clés-ci), donc un plafond peut
-// leur être imposé à tout moment.
+// ⚠️ Valeur à faire valider par les RH : plausible, pas officielle.
 const CONFIG_PAR_DEFAUT: ConfigOM = {
   ageRetraite: 60,
-  tauxMissionAnnuelParPoste: {
-    "Directeur Général": 24,
-    "Directeur Général Adjoint": 20,
-    Directeur: 12,
-    "Sous-Directeur": 10,
-    "Chef de Service": 8,
-    "Chef de Bureau": 6,
-    Cadre: 6,
-    "Agent de maîtrise": 4,
-    "Employé de bureau": 4,
-  },
 };
 
 const CLE_STOCKAGE = "edc-om-config";
 
 function copieParDefaut(): ConfigOM {
-  return {
-    ...CONFIG_PAR_DEFAUT,
-    tauxMissionAnnuelParPoste: { ...CONFIG_PAR_DEFAUT.tauxMissionAnnuelParPoste },
-  };
+  return { ...CONFIG_PAR_DEFAUT };
 }
 
 // L'objet exporté doit garder la MÊME référence pendant toute la vie de l'app
@@ -73,22 +48,6 @@ function ageRetraiteValide(valeur: unknown): valeur is number {
     valeur >= AGE_RETRAITE_MIN &&
     valeur <= AGE_RETRAITE_MAX
   );
-}
-
-function quotaValide(valeur: unknown): valeur is number {
-  return typeof valeur === "number" && Number.isInteger(valeur) && valeur >= 0;
-}
-
-// Ne garde que les entrées exploitables — une clé au quota invalide est
-// supprimée, donc traitée comme "illimité", plutôt que de figer une valeur
-// aberrante dans les règles métier.
-function quotasValides(brut: unknown): Record<string, number> {
-  if (!brut || typeof brut !== "object") return {};
-  const resultat: Record<string, number> = {};
-  for (const [poste, quota] of Object.entries(brut as Record<string, unknown>)) {
-    if (quotaValide(quota)) resultat[poste] = quota;
-  }
-  return resultat;
 }
 
 function sauvegarder(): void {
@@ -114,7 +73,6 @@ function charger(): void {
     configOM.ageRetraite = ageRetraiteValide(stocke.ageRetraite)
       ? stocke.ageRetraite
       : CONFIG_PAR_DEFAUT.ageRetraite;
-    configOM.tauxMissionAnnuelParPoste = quotasValides(stocke.tauxMissionAnnuelParPoste);
   } catch {
     // JSON corrompu — on garde les valeurs par défaut plutôt que de planter
   }
@@ -125,28 +83,16 @@ function charger(): void {
 // enregistrées lors d'une session précédente.
 charger();
 
-// Écriture depuis /admin. Les champs absents du patch ne sont pas touchés.
-// Pour rendre un poste "illimité", il faut OMETTRE sa clé du dictionnaire
-// passé en `tauxMissionAnnuelParPoste` (le dictionnaire remplace l'ancien,
-// il n'est pas fusionné clé à clé).
+// Écriture depuis /admin.
 export function mettreAJourConfig(patch: Partial<ConfigOM>): void {
   if (ageRetraiteValide(patch.ageRetraite)) {
     configOM.ageRetraite = patch.ageRetraite;
-  }
-  if (patch.tauxMissionAnnuelParPoste !== undefined) {
-    configOM.tauxMissionAnnuelParPoste = quotasValides(patch.tauxMissionAnnuelParPoste);
   }
   sauvegarder();
 }
 
 export function reinitialiserConfig(): void {
-  const defauts = copieParDefaut();
-  configOM.ageRetraite = defauts.ageRetraite;
-  configOM.tauxMissionAnnuelParPoste = defauts.tauxMissionAnnuelParPoste;
+  configOM.ageRetraite = CONFIG_PAR_DEFAUT.ageRetraite;
   sauvegarder();
 }
 
-export function quotaAnnuelPourPoste(poste?: string): number {
-  if (!poste) return Infinity;
-  return configOM.tauxMissionAnnuelParPoste[poste] ?? Infinity;
-}

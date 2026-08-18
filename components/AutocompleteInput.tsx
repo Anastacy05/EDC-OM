@@ -86,7 +86,7 @@ export default function AutocompleteInput({
   const resultats = useMemo(() => {
     if (disabled) return [];
     const recherche = normaliser(valeurDebounced.trim());
-    if (recherche.length === 0) return suggestions.slice(0, maxSuggestions);
+    if (recherche.length === 0) return suggestions;
 
     const normalisees = suggestionsNormalisees(suggestions);
     const classes: { texte: string; rang: number }[] = [];

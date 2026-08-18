@@ -1,6 +1,6 @@
 import type { Employee } from "@/lib/employees";
 import { getParticipationsDeEmploye } from "@/lib/mockData";
-import { configOM, quotaAnnuelPourPoste } from "@/lib/config";
+import { configOM } from "@/lib/config";
 
 // ---------------------------------------------------------------------------
 // 1. Concurrence — un employé ne peut pas être sur 2 missions qui se
@@ -87,26 +87,6 @@ export function verifierRetraite(employe: Employee, dateDepart: string): Resulta
   return { bloque: age >= configOM.ageRetraite, age };
 }
 
-// ---------------------------------------------------------------------------
-// 3. Quota annuel — bloquer si l'employé a atteint le nombre max de missions
-//    par an autorisé pour son poste.
-// ---------------------------------------------------------------------------
-
-export interface ResultatQuota {
-  autorise: boolean;
-  utilises: number;
-  quota: number;
-}
-
-export function verifierQuotaAnnuel(employe: Employee, dateDepart: string): ResultatQuota {
-  const annee = new Date(dateDepart).getFullYear();
-  const quota = quotaAnnuelPourPoste(employe.poste);
-
-  const utilises = getParticipationsDeEmploye(employe.matricule).filter(({ om, participant }) => {
-    if (participant.statut === "ANNULE") return false;
-    if (!om.dateDepart) return false;
-    return new Date(om.dateDepart).getFullYear() === annee;
-  }).length;
-
-  return { autorise: utilises < quota, utilises, quota };
-}
+// Le quota annuel de missions par poste, qui vivait ici (section 3), a été
+// retiré à la demande du boss (considéré inutile) — cf. historique git pour
+// `verifierQuotaAnnuel`/`ResultatQuota` si jamais il fallait le réintroduire.

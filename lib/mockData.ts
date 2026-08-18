@@ -37,11 +37,12 @@ const donneesParDefaut: OrdreMission[] = [
     participants: [
       {
         id: "part-1",
-        matricule: "22P582",
+        matricule: "0001",
         nom: "NKOLO ATANGANA",
         prenoms: "Stacy Julie",
         grade: "Ingénieur Stagiaire",
         poste: "Cadre",
+        statutHierarchique: "Cadre",
         affectation: "DEX",
         situationFamille: "Célibataire",
         indice: "410",
@@ -51,6 +52,8 @@ const donneesParDefaut: OrdreMission[] = [
         fonctionEmetteur: "Directeur des Ressources Humaines",
         lieuEmission: "Yaoundé",
         dateEmission: "2026-08-26",
+        // Zone 0 (Cameroun) x statut Cadre — cf. lib/baremes.ts (valeur placeholder).
+        montantFraisFixeJournalier: 27000,
         statut: "EN_ATTENTE",
         fraisPrevisionnels: [
           { id: "frais-1", type: "Transport", montant: 45000, description: "Billet aller-retour" },

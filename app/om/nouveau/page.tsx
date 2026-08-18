@@ -1,13 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { addMockOM, genererProchainNumeroOM } from "@/lib/mockData";
 import { mockEmployees, findEmployeeByMatricule } from "@/lib/employees";
 import { PAYS_SUGGESTIONS, villesDuPays } from "@/lib/locations";
-import { verifierConcurrence, verifierRetraite, verifierQuotaAnnuel } from "@/lib/businessRules";
+import { zoneDuPaysFr, LIBELLE_ZONE } from "@/lib/zones";
+import { montantFraisFixe } from "@/lib/baremes";
+import { verifierConcurrence, verifierRetraite } from "@/lib/businessRules";
 import { buildDocumentForParticipant } from "@/lib/buildDocument";
+import { useBrouillonNonEnregistre } from "@/lib/brouillonContext";
 import {
   inputClass,
   carteClass as fieldsetClass,
@@ -27,12 +30,19 @@ const emptyLeg: VisaLeg = {
   arriveeHeure: "",
 };
 
+// Classes de transport pré-définies par statut existent bien, mais les
+// tarifs associés ne sont connus qu'au remboursement final (pas à la
+// création de l'OM) — pas pertinent de les anticiper ici. Le champ se
+// limite donc au moyen de transport lui-même.
+const MOYENS_TRANSPORT = ["Avion", "Train", "Bus", "Voiture de service"];
+
 interface ParticipantDraft {
   matricule: string;
   nom: string;
   prenoms: string;
   grade: string;
   poste: string;
+  statutHierarchique: string;
   affectation: string;
   situationFamille: string;
   indice: string;
@@ -48,6 +58,7 @@ const gridClass = "grid grid-cols-1 sm:grid-cols-2 gap-4";
 
 export default function NouvelOMPage() {
   const router = useRouter();
+  const { activer: signalerBrouillon, desactiver: effacerBrouillon } = useBrouillonNonEnregistre();
 
   // Infos partagées par toute la mission
   const [mission, setMission] = useState<Omit<OrdreMission, "id" | "participants">>({});
@@ -61,7 +72,11 @@ export default function NouvelOMPage() {
   // const [visas, setVisas] = useState<VisaLeg[]>([emptyLeg]);
   const visas: VisaLeg[] = []; // toujours vide -> le tableau VISAS reste blanc comme le template
 
-  // Infos d'émission — appliquées à tous les participants
+  // Infos d'émission — appliquées à tous les participants. nomEmetteur et
+  // fonctionEmetteur sont volontairement figés (pas des champs de formulaire) :
+  // les normes exigent que tout OM EDC indique le Directeur Général comme
+  // émetteur, donc ces valeurs ne dépendent jamais de qui crée l'OM.
+  // gradeEmetteur reste vide (pas d'exigence équivalente dessus).
   const [emission, setEmission] = useState({
     nomEmetteur: "EDC",
     gradeEmetteur: "",
@@ -78,6 +93,20 @@ export default function NouvelOMPage() {
   const [matriculeSaisi, setMatriculeSaisi] = useState("");
   const [nomSaisi, setNomSaisi] = useState("");
   const [erreurAjout, setErreurAjout] = useState("");
+
+  // Signale au BackButton du header qu'il y a un brouillon en cours dès
+  // qu'un participant est ajouté — "Annuler" (dans la page) préserve déjà ce
+  // travail, mais rien n'empêchait avant de le perdre en quittant par le
+  // bouton retour du header, qui ignore l'état de cette page.
+  useEffect(() => {
+    if (participants.length > 0) signalerBrouillon();
+    else effacerBrouillon();
+  }, [participants.length, signalerBrouillon, effacerBrouillon]);
+
+  // Toujours désactivé en quittant la page, quelle que soit la raison —
+  // sinon un brouillon abandonné ici pourrait déclencher à tort la
+  // confirmation sur une tout autre page ensuite.
+  useEffect(() => () => effacerBrouillon(), [effacerBrouillon]);
 
   // Flux valider -> aperçu -> enregistrer
   const [etape, setEtape] = useState<"formulaire" | "apercu">("formulaire");
@@ -121,6 +150,11 @@ export default function NouvelOMPage() {
   const handleLieuChange = (valeur: string) => {
     setEmissionField("lieuEmission", valeur ?? 'Yaoundé');
   };
+
+  // Recalculé à chaque rendu — juste une recherche dans un Set, pas besoin
+  // de useMemo. Redevient `null` tant que `paysDestination` ne correspond
+  // pas exactement à un pays reconnu (avant sélection d'une suggestion).
+  const zone = zoneDuPaysFr(paysDestination);
 
   // COMMENTÉ (03/08/2026) — décision : on ne touche pas au verso de l'OM
   // pour l'instant, le tableau VISAS reste vide comme dans le template.
@@ -170,6 +204,7 @@ export default function NouvelOMPage() {
         prenoms: employe.prenoms,
         grade: employe.grade,
         poste: employe.poste,
+        statutHierarchique: employe.statut,
         affectation: employe.affectation,
         situationFamille: employe.situationFamille,
         indice: employe.indice,
@@ -243,7 +278,7 @@ export default function NouvelOMPage() {
 
     if (!mission.dateRetour) {
       newErrors.dateRetour = "La date de retour est obligatoire.";
-    } else if (mission.dateRetour < mission.dateDepart) {
+    } else if (mission.dateDepart && mission.dateRetour < mission.dateDepart) {
       newErrors.dateRetour = "La date de retour ne peut pas être avant la date de départ.";
     }
 
@@ -251,30 +286,31 @@ export default function NouvelOMPage() {
       newErrors.participants = "Ajoute au moins un participant.";
     }
 
+    // On sort ici si les dates sont invalides : la boucle ci-dessous passe
+    // mission.dateDepart aux règles métier en le supposant défini, ce que
+    // les vérifications ci-dessus n'ont pas encore garanti.
+    if (newErrors.dateDepart || newErrors.dateRetour || !mission.dateDepart) {
+      setFieldErrors(newErrors);
+      return;
+    }
+    const dateDepart = mission.dateDepart;
+
     // ✅ Validation de chaque participant
     for (const p of participants) {
       const employe = findEmployeeByMatricule(p.matricule);
       const listeProblemes: Probleme[] = [];
 
       if (employe) {
-        const retraite = verifierRetraite(employe, mission.dateDepart);
+        const retraite = verifierRetraite(employe, dateDepart);
         if (retraite.bloque) {
           listeProblemes.push({
             bloquant: true,
             message: `${employe.nom} a atteint l'âge de la retraite (${retraite.age} ans) — mission impossible.`,
           });
         }
-
-        const quota = verifierQuotaAnnuel(employe, mission.dateDepart);
-        if (!quota.autorise) {
-          listeProblemes.push({
-            bloquant: true,
-            message: `Quota annuel atteint pour le poste "${employe.poste}" (${quota.utilises}/${quota.quota} missions).`,
-          });
-        }
       }
 
-      const concurrence = verifierConcurrence(p.matricule, mission.dateDepart, mission.dateRetour);
+      const concurrence = verifierConcurrence(p.matricule, dateDepart, mission.dateRetour);
       if (concurrence.niveau === "blocage") {
         listeProblemes.push({
           bloquant: true,
@@ -343,14 +379,19 @@ export default function NouvelOMPage() {
         prenoms: p.prenoms,
         grade: p.grade,
         poste: p.poste,
+        statutHierarchique: p.statutHierarchique,
         affectation: p.affectation,
         situationFamille: p.situationFamille,
         indice: p.indice,
         numeroOM: numerosGeneres[p.matricule],
         ...emission,
+        // Figé à l'enregistrement — cf. le commentaire sur ce champ dans
+        // types/om.ts (ne doit pas bouger si le barème change ensuite).
+        montantFraisFixeJournalier: montantFraisFixe(p.statutHierarchique, zone),
         fraisPrevisionnels: p.fraisPrevisionnels,
       }))
     );
+    effacerBrouillon(); // enregistré -> plus rien à perdre, le garde-fou n'a plus lieu d'être
     // On enchaîne directement sur le document du premier participant : c'est
     // la page qui porte le bouton de téléchargement, et l'utilisateur vient
     // justement de valider ce document dans l'aperçu. Repli sur la liste si
@@ -493,6 +534,15 @@ export default function NouvelOMPage() {
                 <p className="text-sm text-gray-500">
                   {p.poste} — {p.matricule}
                 </p>
+                {/* Le montant ne peut être connu qu'une fois le pays de
+                    destination choisi (zone) — d'où le message d'attente. */}
+                <p className="text-sm text-amber-700">
+                  {zone === null
+                    ? "Frais fixe journalier : à déterminer une fois la destination choisie"
+                    : montantFraisFixe(p.statutHierarchique, zone) !== undefined
+                      ? `Frais fixe journalier (indicatif) : ${montantFraisFixe(p.statutHierarchique, zone)!.toLocaleString("fr-FR")} FCFA`
+                      : `Aucun frais fixe défini pour le statut "${p.statutHierarchique}".`}
+                </p>
               </div>
               <button
                 type="button"
@@ -514,6 +564,8 @@ export default function NouvelOMPage() {
                 ⚠ {pb.message}
               </p>
             ))}
+          </div>
+        ))}
       </fieldset>
 
       {/* Mission */}
@@ -544,6 +596,13 @@ export default function NouvelOMPage() {
           />
           */}
         </div>
+        {paysDestination && (
+          <p className="text-sm text-amber-700">
+            {zone !== null
+              ? LIBELLE_ZONE[zone]
+              : "Pays non reconnu — sélectionne-le dans la liste de suggestions pour déterminer la zone."}
+          </p>
+        )}
         <textarea
           placeholder="Motif et références"
           onChange={(e) => setMissionField("motif", e.target.value)}
@@ -555,10 +614,11 @@ export default function NouvelOMPage() {
             onChange={(e) => setMissionField("financement", e.target.value)}
             className={inputClass}
           />
-          <input
+          <AutocompleteInput
             placeholder="Moyen de transport"
-            onChange={(e) => setMissionField("moyenTransport", e.target.value)}
-            className={inputClass}
+            value={mission.moyenTransport || ""}
+            onChange={(v) => setMissionField("moyenTransport", v)}
+            suggestions={MOYENS_TRANSPORT}
           />
           {/* ✅ Date de départ avec gestion d'erreur */}
           <div
