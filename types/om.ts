@@ -27,6 +27,12 @@ export interface Participant {
   prenoms?: string;
   grade?: string;
   poste?: string;
+  // Rang hiérarchique (référentiel STATUTS, lib/referentiels.ts) — détermine
+  // le frais fixe journalier avec la zone de destination (lib/baremes.ts).
+  // Nommé différemment de `statut` ci-dessous pour éviter toute confusion :
+  // celui-là est le statut de WORKFLOW de l'OM (en attente/confirmé/annulé),
+  // rien à voir avec le rang de la personne.
+  statutHierarchique?: string;
   affectation?: string;
   situationFamille?: string;
   indice?: string;
@@ -38,6 +44,12 @@ export interface Participant {
   fonctionEmetteur?: string;
   lieuEmission?: string;
   dateEmission?: string;
+
+  // Calculé à la création (statutHierarchique + zone de destination à ce
+  // moment-là), pas recalculé ensuite : comme les autres champs "snapshot",
+  // il doit refléter la situation au moment de la mission, pas une éventuelle
+  // révision ultérieure du barème ou un changement de statut de l'employé.
+  montantFraisFixeJournalier?: number;
 
   statut: StatutParticipant;
   fraisPrevisionnels: Frais[];

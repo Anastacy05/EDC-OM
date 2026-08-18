@@ -73,3 +73,26 @@ export function libelleDepartement(valeur?: string): string {
   if (!valeur) return "";
   return DEPARTEMENTS.find((d) => d.valeur === valeur)?.libelle ?? valeur;
 }
+
+// ---------------------------------------------------------------------------
+// STATUT — encore un axe DIFFÉRENT du grade et du poste, à ne pas confondre :
+//   • GRADE : titre statutaire attaché à la personne (Participant.grade)
+//   • POSTE : emploi occupé dans l'organigramme (Participant.poste, ci-dessus)
+//   • STATUT : position hiérarchique qui détermine le barème des frais de
+//     mission (indemnité journalière), avec la zone géographique de
+//     destination — cf. lib/baremes.ts. Recueilli à la main (photo d'une
+//     liste manuscrite) ; à faire valider par les RH si un intitulé semble
+//     manquer ou mal placé.
+// ---------------------------------------------------------------------------
+export const STATUTS: OptionReferentiel[] = [
+  { valeur: "Administrateur", libelle: "Administrateur" },
+  { valeur: "Directeur Général", libelle: "Directeur Général" },
+  { valeur: "Directeur Général Adjoint", libelle: "Directeur Général Adjoint" },
+  { valeur: "Directeur", libelle: "Directeur" },
+  { valeur: "Sous-directeur", libelle: "Sous-directeur" },
+  { valeur: "Chef de Service", libelle: "Chef de Service" },
+  { valeur: "Chef de Bureau", libelle: "Chef de Bureau" },
+  { valeur: "Cadre", libelle: "Cadre" },
+  { valeur: "Agent de maîtrise", libelle: "Agent de maîtrise" },
+  { valeur: "Agent d'exécution", libelle: "Agent d'exécution" },
+];

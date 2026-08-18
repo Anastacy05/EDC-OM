@@ -100,6 +100,10 @@ const cacheVillesParPays = new Map<string, string[]>();
 // (indexé par référence de tableau) et referait rendre la liste pour rien.
 const AUCUNE_VILLE: string[] = [];
 
+export function codeISODuPaysFr(nomPaysFr: string): string | undefined {
+  return codeParNomPays[nomPaysFr];
+}
+
 export function villesDuPays(nomPaysFr: string): string[] {
   const code = codeParNomPays[nomPaysFr];
   if (!code) return AUCUNE_VILLE; // pays pas (encore) reconnu -> pas de suggestion

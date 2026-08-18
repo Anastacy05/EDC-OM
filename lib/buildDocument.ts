@@ -1,4 +1,27 @@
-import type { OrdreMission, Participant, OrdreMissionDocument } from "@/types/om";
+import type { OrdreMission, Participant, OrdreMissionDocument, VisaLeg } from "@/types/om";
+
+const LEG_VIDE: VisaLeg = {
+  departDe: "",
+  departLe: "",
+  departHeure: "",
+  arriveeA: "",
+  arriveeLe: "",
+  arriveeHeure: "",
+};
+
+// La boucle {#visas} du template DISPARAÎT complètement (zéro ligne) si on
+// lui donne un tableau vide — hors, ces cases doivent rester visibles même
+// vides, pour un remplissage manuel a posteriori (comme le reste de la
+// page 2). On garantit donc toujours au moins 3 lignes ; s'il y a plus de 3
+// vraies étapes le jour où la fonctionnalité est réactivée, elles
+// s'affichent normalement en plus.
+const NB_LIGNES_VISAS_MIN = 3;
+
+function visasAffiches(visas: VisaLeg[] | undefined): VisaLeg[] {
+  const lignes = visas ? [...visas] : [];
+  while (lignes.length < NB_LIGNES_VISAS_MIN) lignes.push({ ...LEG_VIDE });
+  return lignes;
+}
 
 // Un même OM peut concerner plusieurs employés, mais le document Word
 // (comme l'aperçu à l'écran) est toujours individuel — un fichier par
@@ -34,6 +57,6 @@ export function buildDocumentForParticipant(
     paragraphe: om.paragraphe,
     exercice: om.exercice,
     exerciceAnnee: om.exerciceAnnee,
-    visas: om.visas,
+    visas: visasAffiches(om.visas),
   };
 }

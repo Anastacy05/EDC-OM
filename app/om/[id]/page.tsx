@@ -192,12 +192,18 @@ export default function OMDetailPage() {
         </div>
       )}
 
-      <div className="max-w-[794px] mx-auto px-4 mb-4 flex justify-center">
+      <div className="max-w-[794px] mx-auto px-4 mb-4 flex flex-col items-center gap-1">
         <span
           className={`px-3 py-1 rounded-full text-sm font-medium ${statutStyles[participant.statut]}`}
         >
           {participant.statut}
         </span>
+        {participant.montantFraisFixeJournalier !== undefined && (
+          <span className="text-sm text-amber-700">
+            {participant.statutHierarchique} — Frais fixe journalier (indicatif) :{" "}
+            {participant.montantFraisFixeJournalier.toLocaleString("fr-FR")} FCFA
+          </span>
+        )}
       </div>
 
       {/* Le fac-similé reste neutre / fidèle au document Word — lecture seule */}
