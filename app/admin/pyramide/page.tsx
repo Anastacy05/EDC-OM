@@ -39,8 +39,8 @@ export default function PyramideRapportPage() {
         </p>
 
         <div className="flex flex-col items-center gap-1">
-          {niveaux.map(({ statut, count }) => {
-            const largeurPct = count === 0 ? 12 : 20 + (count / maxCompte) * 80;
+          {niveaux.map(({ statut, count, index }) => {
+            const largeurPct = (index+1)/niveaux.length()*100;
             return (
               <button
                 key={statut}
