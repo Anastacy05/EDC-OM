@@ -19,7 +19,14 @@ export const carteClass =
   "bg-white/70 rounded-2xl shadow-md shadow-blue-950/10 p-6 flex flex-col gap-4";
 
 // Titre d'une section (<legend> dans les formulaires, <h2> ailleurs).
-export const legendClass = "text-amber-600 font-semibold px-2 text-lg";
+// amber-700 et non amber-600 : à 18px semi-gras, ce texte n'est PAS du
+// « grand texte » au sens WCAG (seuil 24px, ou 18.7px en gras), il lui faut
+// donc 4.5:1 et non 3:1. Sur une carte (bg-white/70 sur bg-blue-50),
+// amber-600 ne donne que 3.11:1 ; amber-700 monte à 4.93:1.
+export const legendClass = "text-amber-700 font-semibold px-2 text-lg";
 
 // Titre principal de page.
-export const titrePageClass = "text-3xl font-bold italic text-amber-500 drop-shadow-xl";
+// amber-700 et non amber-500 : sur le fond bg-blue-50, amber-500 tombe à
+// 1.97:1 — un titre quasi illisible, même pour une vue normale. amber-700
+// donne 4.64:1, au-delà du seuil de 3:1 des grands textes.
+export const titrePageClass = "text-3xl font-bold italic text-amber-700 drop-shadow-xl";

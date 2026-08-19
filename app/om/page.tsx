@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { mockOMs } from "@/lib/mockData";
@@ -16,7 +16,31 @@ const statutStyles: Record<string, string> = {
   ANNULE: "bg-red-200 text-red-800",
 };
 
+// `useSearchParams` fait basculer tout l'arbre jusqu'à la frontière <Suspense>
+// la plus proche en rendu côté client. Sans cette frontière, `next build`
+// échoue au prérendu de cette route (erreur « missing-suspense-with-csr-bailout ») —
+// invisible en `next dev`, où les routes sont rendues à la demande.
+// La liste vit donc dans ListeOM, et la page n'est que son enveloppe.
 export default function OMListPage() {
+  return (
+    <Suspense fallback={<SqueletteListe />}>
+      <ListeOM />
+    </Suspense>
+  );
+}
+
+// Rendu à la place de la liste dans le HTML initial : on garde l'ossature de
+// la page (fond, titre) pour éviter un écran vide au chargement.
+function SqueletteListe() {
+  return (
+    <div className="min-h-full w-full bg-blue-50 flex flex-col gap-8 p-10">
+      <h1 className={titrePageClass}>Ordres de mission</h1>
+      <p className="text-sm text-gray-500">Chargement de la liste…</p>
+    </div>
+  );
+}
+
+function ListeOM() {
   // Pré-remplissage depuis l'URL — utilisé par les pages de rapports
   // (carte/frise/pyramide) pour arriver ici avec le bon filtre déjà en
   // place. Lu une seule fois à l'ouverture (useState paresseux) : après

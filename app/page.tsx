@@ -9,7 +9,7 @@ export default function Home() {
   return (
     <div className="h-full w-full flex flex-col justify-center items-center gap-20 p-10 bg-blue-50">
       <div className="flex flex-col justify-center items-center gap-5">
-        <div className="text-5xl font-bold italic text-amber-500 drop-shadow-xl">
+        <div className="text-5xl font-bold italic text-amber-700 drop-shadow-xl">
           OM for EDC
         </div>
         <div className="text-amber-700 text-md font-medium">

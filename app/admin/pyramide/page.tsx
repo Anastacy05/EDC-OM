@@ -13,7 +13,6 @@ export default function PyramideRapportPage() {
 
   const comptesBruts = participantsParStatut();
   const compteParStatut = new Map(comptesBruts.map((c) => [c.cle, c.count]));
-  const maxCompte = Math.max(1, ...comptesBruts.map((c) => c.count));
 
   // Ordre de la pyramide = ordre du référentiel (déjà du plus élevé au plus
   // bas dans la hiérarchie) — pas l'ordre des comptes, pour garder la forme
@@ -39,8 +38,10 @@ export default function PyramideRapportPage() {
         </p>
 
         <div className="flex flex-col items-center gap-1">
-          {niveaux.map(({ statut, count, index }) => {
-            const largeurPct = (index+1)/niveaux.length()*100;
+          {niveaux.map(({ statut, count }, index) => {
+            // Largeur = rang hiérarchique, pas nombre de missions : la forme
+            // en pyramide doit rester lisible même si un niveau est à 0.
+            const largeurPct = ((index + 1) / niveaux.length) * 100;
             return (
               <button
                 key={statut}
@@ -48,8 +49,8 @@ export default function PyramideRapportPage() {
                 disabled={count === 0}
                 style={{ width: `${largeurPct}%` }}
                 className="flex items-center justify-between gap-3 px-4 py-2 rounded-lg
-                           bg-blue-400 hover:bg-amber-500 disabled:bg-gray-200 disabled:cursor-default
-                           text-white disabled:text-gray-500 text-sm transition-colors"
+                           bg-blue-600 hover:bg-amber-700 disabled:bg-gray-200 disabled:cursor-default
+                           text-white disabled:text-gray-600 text-sm transition-colors"
               >
                 <span className="truncate">{statut}</span>
                 <span className="font-medium shrink-0">{count}</span>
@@ -70,7 +71,7 @@ export default function PyramideRapportPage() {
               >
                 <span>
                   {e.nom} {e.prenoms}
-                  <span className="text-gray-400 ml-2">{e.matricule}</span>
+                  <span className="text-gray-500 ml-2">{e.matricule}</span>
                 </span>
                 <span className="text-blue-700 font-medium">
                   {e.count} mission{e.count > 1 ? "s" : ""}

@@ -41,7 +41,7 @@ export default function Header() {
         </div>
         <div
           title="Pas encore disponible"
-          className="py-2 px-4 rounded-lg bg-white/50 text-dark/50 shadow-md cursor-not-allowed shadow-blue-950/20"
+          className="py-2 px-4 rounded-lg bg-white/50 text-blue-900/50 shadow-md cursor-not-allowed shadow-blue-950/20"
         >
           Se Connecter
         </div>

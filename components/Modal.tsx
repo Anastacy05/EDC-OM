@@ -29,11 +29,11 @@ export default function Modal({ titre, onFermer, children }: ModalProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-blue-100 sticky top-0 bg-white">
-          <h2 className="text-lg font-semibold text-amber-600">{titre}</h2>
+          <h2 className="text-lg font-semibold text-amber-700">{titre}</h2>
           <button
             onClick={onFermer}
             aria-label="Fermer"
-            className="text-gray-400 hover:text-gray-700 text-2xl leading-none px-2"
+            className="text-gray-500 hover:text-gray-700 text-2xl leading-none px-2"
           >
             ×
           </button>

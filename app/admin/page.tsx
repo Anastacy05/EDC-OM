@@ -125,7 +125,7 @@ export default function AdminPage() {
 	      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-4xl">
 		{RAPPORTS.map((r) => (
 		  <Link key={r.href} href={r.href} className={`${carteClass} hover:shadow-lg transition-shadow`}>
-		    <h2 className="text-amber-600 font-semibold text-lg">{r.titre}</h2>
+		    <h2 className="text-amber-700 font-semibold text-lg">{r.titre}</h2>
 		    <p className="text-sm text-gray-600">{r.description}</p>
 		  </Link>
 		))}

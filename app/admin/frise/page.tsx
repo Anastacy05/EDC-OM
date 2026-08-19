@@ -42,7 +42,7 @@ export default function FriseRapportPage() {
                 <span className="text-sm font-medium text-blue-800">{count}</span>
                 <div
                   style={{ height: `${Math.max(8, (count / maxAnnee) * 160)}px` }}
-                  className="w-16 rounded-t-lg bg-blue-400 group-hover:bg-amber-500 transition-colors"
+                  className="w-16 rounded-t-lg bg-blue-600 group-hover:bg-amber-700 transition-colors"
                 />
                 <span className="text-sm text-gray-600 border-t-2 border-blue-800 pt-1 w-full text-center">
                   {cle}

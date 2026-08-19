@@ -340,7 +340,7 @@ export default function OMPreview({ om = sampleOM }: OMPreviewProps) {
                 <i>On departure</i>
               </td>
               <td colSpan={4} className="center small">
-                A L'ARRIVEE
+                A L&apos;ARRIVEE
                 <br />
                 <i>On arrival</i>
               </td>
@@ -379,8 +379,8 @@ export default function OMPreview({ om = sampleOM }: OMPreviewProps) {
 
             <tr>
               <td colSpan={10} className="locked-banner">
-                REGLEMENT DEFINITIF – rempli manuellement par l'agent au retour de mission (non géré
-                par l'application)
+                REGLEMENT DEFINITIF – rempli manuellement par l&apos;agent au retour de mission (non géré
+                par l&apos;application)
               </td>
             </tr>
             <tr>
