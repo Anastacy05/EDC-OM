@@ -534,15 +534,6 @@ export default function NouvelOMPage() {
                 <p className="text-sm text-gray-500">
                   {p.poste} — {p.matricule}
                 </p>
-                {/* Le montant ne peut être connu qu'une fois le pays de
-                    destination choisi (zone) — d'où le message d'attente. */}
-                <p className="text-sm text-amber-700">
-                  {zone === null
-                    ? "Frais fixe journalier : à déterminer une fois la destination choisie"
-                    : montantFraisFixe(p.statutHierarchique, zone) !== undefined
-                      ? `Frais fixe journalier (indicatif) : ${montantFraisFixe(p.statutHierarchique, zone)!.toLocaleString("fr-FR")} FCFA`
-                      : `Aucun frais fixe défini pour le statut "${p.statutHierarchique}".`}
-                </p>
               </div>
               <button
                 type="button"
@@ -738,12 +729,15 @@ export default function NouvelOMPage() {
       <fieldset className={fieldsetClass}>
         <legend className={legendClass}>Émission</legend>
         <div className={gridClass}>
-          <AutocompleteInput
-            placeholder="Lieu d'émission"
-            value={emission.lieuEmission}
-            onChange={handleLieuChange}
-            suggestions={villesDuPays("Cameroun")}
-          />
+          <label className="flex flex-col gap-1 text-sm text-amber-700">
+            Lieu d&apos;émission
+		  <AutocompleteInput
+		    placeholder="ex: Yaounde"
+		    value={emission.lieuEmission}
+		    onChange={handleLieuChange}
+		    suggestions={villesDuPays("Cameroun")}
+		  />
+	  </label>
           <label className="flex flex-col gap-1 text-sm text-amber-700">
             Date d&apos;émission
             <input
