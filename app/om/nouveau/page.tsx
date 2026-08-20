@@ -70,7 +70,13 @@ export default function NouvelOMPage() {
 
   // COMMENTÉ (03/08/2026) — verso non éditable pour l'instant.
   // const [visas, setVisas] = useState<VisaLeg[]>([emptyLeg]);
-  const visas: VisaLeg[] = []; // toujours vide -> le tableau VISAS reste blanc comme le template
+  //
+  // COMMENTÉ (20/08/2026) — les étapes VISA ne sont plus gérées du tout par
+  // l'application : elles sont renseignées à la main sur le papier. Le champ
+  // `visas` a été retiré de OrdreMission (types/om.ts), donc cette constante
+  // n'a plus de destinataire. Les lignes vierges du tableau imprimé sont
+  // produites par lignesVisasVierges() dans lib/buildDocument.ts.
+  // const visas: VisaLeg[] = [];
 
   // Infos d'émission — appliquées à tous les participants. nomEmetteur et
   // fonctionEmetteur sont volontairement figés (pas des champs de formulaire) :
@@ -372,7 +378,7 @@ export default function NouvelOMPage() {
 
   const handleEnregistrer = () => {
     const nouvelle = addMockOM(
-      { ...mission, visas },
+      mission,
       participants.map((p) => ({
         matricule: p.matricule,
         nom: p.nom,
@@ -403,7 +409,7 @@ export default function NouvelOMPage() {
 
   // ============ ÉTAPE APERÇU ============
   if (etape === "apercu") {
-    const missionComplete: OrdreMission = { ...mission, id: "brouillon", visas, participants: [] };
+    const missionComplete: OrdreMission = { ...mission, id: "brouillon", participants: [] };
     return (
       <div className="min-h-full w-full bg-blue-50 flex flex-col gap-8 p-10">
         <h1 className={titrePageClass}>

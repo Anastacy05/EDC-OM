@@ -5,10 +5,15 @@ import { useRouter } from "next/navigation";
 import Modal from "@/components/Modal";
 import { missionsParAnnee, missionsParMoisDansAnnee, bornesDuMois, NOMS_MOIS } from "@/lib/analytics";
 import { titrePageClass, carteClass } from "@/lib/styles";
+import { useEstMonte } from "@/lib/useEstMonte";
 
 export default function FriseRapportPage() {
   const router = useRouter();
   const [anneeOuverte, setAnneeOuverte] = useState<number | null>(null);
+  // Garde-fou d'hydratation : `missionsParAnnee()` dérive de `mockOMs`, qui vaut
+  // les données par défaut au rendu serveur et celles de localStorage côté
+  // client. Les deux rendus divergeraient (cf. app/om/[id]/page.tsx).
+  const estMonte = useEstMonte();
 
   const comptesAnnee = missionsParAnnee();
   const maxAnnee = Math.max(1, ...comptesAnnee.map((c) => c.count));
@@ -29,7 +34,9 @@ export default function FriseRapportPage() {
       <div className={`${carteClass} max-w-4xl`}>
         <p className="text-sm text-gray-600">Clique sur une année pour voir le détail par mois.</p>
 
-        {comptesAnnee.length === 0 ? (
+        {!estMonte ? (
+          <p className="text-gray-500 text-sm">Chargement des données…</p>
+        ) : comptesAnnee.length === 0 ? (
           <p className="text-gray-500 text-sm">Aucune mission enregistrée pour l&apos;instant.</p>
         ) : (
           <div className="flex items-end gap-6 h-56 overflow-x-auto px-2">

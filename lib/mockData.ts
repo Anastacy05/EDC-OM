@@ -16,6 +16,10 @@ const donneesParDefaut: OrdreMission[] = [
     moyenTransport: "Véhicule de service",
     dateDepart: "2026-08-28",
     dateRetour: "2026-08-31",
+    /* COMMENTÉ (20/08/2026) — les étapes VISA ne sont plus gérées par
+       l'application (renseignées à la main sur le papier). Le champ `visas` a
+       été retiré de OrdreMission ; les cases vierges du document imprimé sont
+       produites par lignesVisasVierges() dans lib/buildDocument.ts.
     visas: [
       {
         departDe: "Yaoundé",
@@ -34,6 +38,7 @@ const donneesParDefaut: OrdreMission[] = [
         arriveeHeure: "13:00",
       },
     ],
+    */
     participants: [
       {
         id: "part-1",
@@ -43,7 +48,11 @@ const donneesParDefaut: OrdreMission[] = [
         grade: "Ingénieur Stagiaire",
         poste: "Cadre",
         statutHierarchique: "Cadre",
-        affectation: "DEX",
+        // Corrigé (20/08/2026) : était "DEX", alors que lib/employees.ts donne
+        // "DSI" pour ce matricule. Les deux jeux de données de démonstration
+        // doivent concorder, sinon le filtre par département de la liste
+        // affiche un résultat contredit par la fiche de l'employé.
+        affectation: "DSI",
         situationFamille: "Célibataire",
         indice: "410",
         numeroOM: "0142",
@@ -52,8 +61,12 @@ const donneesParDefaut: OrdreMission[] = [
         fonctionEmetteur: "Directeur des Ressources Humaines",
         lieuEmission: "Yaoundé",
         dateEmission: "2026-08-26",
-        // Zone 0 (Cameroun) x statut Cadre — cf. lib/baremes.ts (valeur placeholder).
-        montantFraisFixeJournalier: 27000,
+        // Zone 0 (Cameroun) x statut Cadre — cf. lib/baremes.ts.
+        // Corrigé (20/08/2026) : était 27000, ce qui contredisait le barème
+        // (BAREME_FRAIS_FIXE["Cadre"][0] = 60000). Une donnée de démonstration
+        // fausse sur un montant est piégeuse : elle donne l'impression que le
+        // calcul du frais fixe est cassé alors qu'il est correct.
+        montantFraisFixeJournalier: 60000,
         statut: "EN_ATTENTE",
         fraisPrevisionnels: [
           { id: "frais-1", type: "Transport", montant: 45000, description: "Billet aller-retour" },
@@ -144,8 +157,21 @@ export function addMockOM(
   return nouvelleMission;
 }
 
-// Numéro d'OM séquentiel mock — à remplacer par une vraie séquence côté
-// PostgreSQL (auto-increment ou séquence dédiée, cf AMELIORATIONS.md #4). Compte simplement les participations déjà enregistrées.
+// Numéro d'OM séquentiel mock — compte simplement les participations déjà
+// enregistrées.
+//
+// ⚠️ COUNT + 1 est FAUX, et pas seulement en théorie : deux postes travaillant
+// hors ligne calculent le même total et émettent donc le MÊME numéro. Or le
+// numéro d'un OM est l'identifiant d'une pièce administrative signée par le DG.
+//
+// À remplacer par des PLAGES RÉSERVÉES (MODELE-DONNEES.md §7) : chaque poste
+// réserve un lot de numéros quand il est connecté, puis y puise hors ligne. Le
+// numéro est ainsi définitif dès la création — donc imprimable et signable
+// immédiatement — et une contrainte EXCLUDE en base rend le recouvrement de
+// deux plages structurellement impossible.
+//
+// Format cible, à valider RH : 0042/OM/EDC/DG/2026 (compteur remis à zéro
+// chaque année) — et non "0042" seul, comme ici.
 export function genererProchainNumeroOM(): string {
   const total = mockOMs.reduce((n, om) => n + om.participants.length, 0);
   return String(total + 1).padStart(4, "0");
@@ -172,6 +198,22 @@ export function annulerParticipant(omId: string, participantId: string): void {
   }
 }
 
+/* COMMENTÉ (20/08/2026) — la suppression d'un OM est retirée du produit.
+
+   Deux raisons, cf. MODELE-DONNEES.md §7 :
+
+   1. Le numéro d'OM est DÉFINITIF dès la création et le document est
+      imprimable avant confirmation. Supprimer l'enregistrement ne rend pas le
+      numéro : il subsisterait sur papier sans plus exister en base.
+   2. Cette fonction supprime la mission ENTIÈRE quand elle retire le dernier
+      participant — effet de bord jamais voulu, seulement subi.
+
+   Remplacée par les statuts REFUSE (admin, motivé) et EXPIRE (automatique).
+
+   À noter au passage : `genererProchainNumeroOM` ci-dessus est un COUNT + 1,
+   donc faux dès qu'un enregistrement disparaît — c'est cette fonction qui le
+   rendait dangereux. La numérotation passera à des plages réservées.
+
 // Utilisateur OM : supprimer un OM en attente (uniquement).
 // Si c'était le dernier participant, la mission entière disparaît.
 export function supprimerParticipant(omId: string, participantId: string): boolean {
@@ -188,6 +230,7 @@ export function supprimerParticipant(omId: string, participantId: string): boole
   sauvegarder();
   return true;
 }
+*/
 
 export function ajouterFrais(
   omId: string,

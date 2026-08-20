@@ -10,17 +10,18 @@ const LEG_VIDE: VisaLeg = {
 };
 
 // La boucle {#visas} du template DISPARAÎT complètement (zéro ligne) si on
-// lui donne un tableau vide — hors, ces cases doivent rester visibles même
+// lui donne un tableau vide — or ces cases doivent rester visibles même
 // vides, pour un remplissage manuel a posteriori (comme le reste de la
-// page 2). On garantit donc toujours au moins 3 lignes ; s'il y a plus de 3
-// vraies étapes le jour où la fonctionnalité est réactivée, elles
-// s'affichent normalement en plus.
+// page 2). On garantit donc toujours au moins 3 lignes.
+//
+// (20/08/2026) Les étapes VISA n'étant plus gérées par l'application, cette
+// fonction ne reçoit plus de données : elle ne sert QUE à réserver les lignes
+// vierges à l'impression. Elle reste donc indispensable — la retirer ferait
+// disparaître le tableau du document Word, ce qui est l'inverse du but.
 const NB_LIGNES_VISAS_MIN = 3;
 
-function visasAffiches(visas: VisaLeg[] | undefined): VisaLeg[] {
-  const lignes = visas ? [...visas] : [];
-  while (lignes.length < NB_LIGNES_VISAS_MIN) lignes.push({ ...LEG_VIDE });
-  return lignes;
+function lignesVisasVierges(): VisaLeg[] {
+  return Array.from({ length: NB_LIGNES_VISAS_MIN }, () => ({ ...LEG_VIDE }));
 }
 
 // Un même OM peut concerner plusieurs employés, mais le document Word
@@ -57,6 +58,8 @@ export function buildDocumentForParticipant(
     paragraphe: om.paragraphe,
     exercice: om.exercice,
     exerciceAnnee: om.exerciceAnnee,
-    visas: visasAffiches(om.visas),
+    // Toujours des lignes vierges : le tableau VISAS du document est rempli à
+    // la main, mais ses cases doivent exister à l'impression.
+    visas: lignesVisasVierges(),
   };
 }

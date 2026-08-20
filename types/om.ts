@@ -1,5 +1,17 @@
 // Une étape du trajet (une ligne du tableau VISAS, page 2 du document).
-// Partagée par toute la mission — tout le monde suit le même itinéraire.
+//
+// ⚠️ DÉCISION (20/08/2026) — les étapes VISA ne sont PLUS GÉRÉES par
+// l'application : elles sont renseignées à la main sur le papier, hors de
+// l'appli. L'entité `etape_visa` a donc été retirée du modèle de données
+// (MODELE-DONNEES.md §5).
+//
+// Ce type est néanmoins CONSERVÉ, et c'est volontaire : le template Word
+// contient une boucle {#visas}...{/visas} qui, si on lui passe un tableau
+// vide, fait DISPARAÎTRE les lignes du tableau imprimé. Or ces cases doivent
+// rester visibles et vierges pour le remplissage manuel. `visasAffiches()`
+// (lib/buildDocument.ts) fabrique donc des étapes vides à la seule fin de
+// réserver les lignes à l'impression. Le type sert à ça, plus à stocker
+// quoi que ce soit.
 export interface VisaLeg {
   departDe: string;
   departLe: string;
@@ -10,6 +22,9 @@ export interface VisaLeg {
 }
 
 export type StatutParticipant = "EN_ATTENTE" | "CONFIRME" | "ANNULE";
+// À VENIR (MODELE-DONNEES.md §7) — deux états s'ajouteront avec la base :
+//   "REFUSE" : l'admin écarte un OM non confirmé, avec motif
+//   "EXPIRE" : date de retour passée sans confirmation, posé automatiquement
 
 export interface Frais {
   id: string;
@@ -80,7 +95,12 @@ export interface OrdreMission {
   paragraphe?: string;
   exercice?: string;
   exerciceAnnee?: string;
-  visas?: VisaLeg[];
+  // COMMENTÉ (20/08/2026) — les étapes VISA ne sont plus gérées par l'appli
+  // (renseignées à la main, hors application). Le champ n'était de toute façon
+  // jamais alimenté : app/om/nouveau/page.tsx passait `const visas = []`.
+  // Les cases vierges du document imprimé sont produites par visasAffiches()
+  // dans lib/buildDocument.ts, sans passer par une donnée stockée.
+  // visas?: VisaLeg[];
   participants: Participant[];
 }
 

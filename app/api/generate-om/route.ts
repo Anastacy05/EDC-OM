@@ -8,8 +8,23 @@ export const runtime = "nodejs";
 // Le front envoie l'OM qu'il a déjà (mock data pour l'instant, base
 // PostgreSQL via Prisma plus tard) — cette route ne fait AUCUN appel
 // réseau, elle se contente de générer le fichier à partir de ce qu'on lui
-// donne. Aucune revalidation des règles métier ici pour l'instant (voir
-// AMELIORATIONS.md #2) : à faire une fois Prisma branché, avant génération.
+// donne.
+//
+// ⚠️ AUCUNE authentification ni revalidation des règles métier ici. La doc
+// Next 16 est explicite sur ce risque pour les Server Functions, et il vaut
+// autant pour un Route Handler : « reachable via direct POST requests, not
+// just through your application's UI ». N'importe qui peut donc obtenir un
+// document Word au contenu de son choix.
+//
+// À corriger quand la base sera branchée : la route devra recevoir un
+// IDENTIFIANT d'OM et lire les données EN BASE, au lieu de faire confiance au
+// corps de la requête. Cf. MODELE-DONNEES.md §1 et §13 (étape 8).
+//
+// ⚠️ Cette route devra aussi migrer côté navigateur : l'OM doit être
+// téléchargeable HORS LIGNE (MODELE-DONNEES.md §1), ce qu'un Route Handler ne
+// permet pas. docxtemplater fonctionne dans le navigateur — c'est son usage
+// d'origine. Les deux exigences se rejoignent mal : lecture en base (serveur)
+// contre téléchargement hors ligne (client). À trancher à l'étape 10.
 export async function POST(request: NextRequest) {
   const om: OrdreMissionDocument = await request.json();
 

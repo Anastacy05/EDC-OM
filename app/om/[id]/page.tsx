@@ -1,18 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
+// useRouter : cf. la ligne commentée dans le composant (20/08/2026).
 import OMPreview from "@/components/OMPreview";
 import {
   getMockOM,
   confirmerParticipant,
   annulerParticipant,
-  supprimerParticipant,
+  // supprimerParticipant, // COMMENTÉ (20/08/2026) — cf. handleSupprimer ci-dessous
   // ajouterFrais, // COMMENTÉ (03/08/2026) — frais non gérés par l'appli pour l'instant
 } from "@/lib/mockData";
 import { buildDocumentForParticipant } from "@/lib/buildDocument";
 import { formatDateFR, formatHeureFR } from "@/lib/dateUtils";
 import { titrePageClass } from "@/lib/styles";
+import { useEstMonte } from "@/lib/useEstMonte";
 import { verifierConcurrence } from "@/lib/businessRules";
 
 const statutStyles: Record<string, string> = {
@@ -23,8 +25,25 @@ const statutStyles: Record<string, string> = {
 
 export default function OMDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
+  // COMMENTÉ (20/08/2026) — handleSupprimer était son seul consommateur (il
+  // redirigeait vers /om quand la mission entière disparaissait). Reviendra
+  // avec l'action « Refuser » réservée à l'admin.
+  // const router = useRouter();
   const searchParams = useSearchParams();
+
+  // Garde-fou d'hydratation, comme sur /admin.
+  //
+  // `mockOMs` (lib/mockData.ts) vaut les données par DÉFAUT au rendu serveur et
+  // celles de localStorage côté navigateur. Sans ce garde-fou, un OM créé par
+  // l'utilisateur est INTROUVABLE côté serveur et TROUVÉ côté client : les deux
+  // rendus divergent complètement (branche « introuvable », centrée, contre la
+  // page de détail), React remonte une erreur d'hydratation et peut conserver
+  // le HTML du serveur — donc afficher « introuvable » pour un OM qui existe.
+  //
+  // Disparaîtra avec la base : les données viendront alors du serveur, qui les
+  // connaîtra (MODELE-DONNEES.md §13, étape 9).
+  const estMonte = useEstMonte();
+
   const om = getMockOM(id);
   const participantIdVoulu = searchParams.get("participant");
   const indexInitial = om
@@ -41,6 +60,18 @@ export default function OMDetailPage() {
   // const [nouveauFrais, setNouveauFrais] = useState({ type: "", montant: "" }); // COMMENTÉ (03/08/2026)
 
   const refresh = () => setTick((t) => t + 1);
+
+  // Ce test vient AVANT celui sur `om` : au rendu serveur, `om` est
+  // systématiquement absent pour tout OM créé par l'utilisateur, et afficher
+  // « introuvable » serait à la fois faux et source d'écart d'hydratation.
+  // Placé après tous les hooks, jamais avant (règles des hooks React).
+  if (!estMonte) {
+    return (
+      <div className="min-h-full w-full bg-blue-50 flex items-center justify-center">
+        <p className="text-gray-500 text-sm">Chargement de l&apos;ordre de mission…</p>
+      </div>
+    );
+  }
 
   if (!om || om.participants.length === 0) {
     return (
@@ -99,6 +130,24 @@ export default function OMDetailPage() {
     refresh();
   };
 
+  /* COMMENTÉ (20/08/2026) — la suppression d'un OM est retirée du produit.
+
+     Raison : chaque OM consomme un numéro DÉFINITIF dès sa création
+     (0042/OM/EDC/DG/2026, tiré d'une plage réservée) et il est imprimable
+     immédiatement, avant même d'être confirmé. Supprimer l'enregistrement ne
+     rend pas le numéro : le document existerait sur papier sans plus exister
+     en base, ce qui est exactement le trou de traçabilité que la numérotation
+     doit empêcher. Un OM jamais confirmé est par ailleurs une information de
+     gestion, pas un déchet.
+
+     Remplacé par deux statuts, cf. MODELE-DONNEES.md §7 :
+       • REFUSE — l'admin écarte un OM non confirmé, AVEC un motif, et son
+         auteur est notifié de la raison. C'est la transition qui manquait :
+         annulerParticipant n'accepte que CONFIRME -> ANNULE, donc un OM en
+         attente ne pouvait être qu'effacé, faute d'alternative.
+       • EXPIRE — posé AUTOMATIQUEMENT quand la date de retour est passée et
+         que l'OM n'a jamais été confirmé. Personne n'a à faire le ménage.
+
   const handleSupprimer = () => {
     if (!confirm(`Supprimer l'OM en attente de ${participant.nom} ?`)) return;
     supprimerParticipant(om.id, participant.id);
@@ -109,6 +158,7 @@ export default function OMDetailPage() {
     setIndex((i) => Math.max(0, i - 1));
     refresh();
   };
+  */
 
   // COMMENTÉ (03/08/2026) — frais non gérés par l'appli pour l'instant.
   // const handleAjouterFraisReel = () => {
@@ -230,6 +280,12 @@ export default function OMDetailPage() {
           Annuler
         </button>
 
+        {/* COMMENTÉ (20/08/2026) — bouton « Supprimer » retiré : un OM ne se
+            supprime pas, son numéro étant déjà émis (cf. handleSupprimer plus
+            haut et MODELE-DONNEES.md §7). À remplacer par un bouton
+            « Refuser » réservé à l'admin, demandant un motif, une fois les
+            rôles implémentés.
+
         <button
           onClick={handleSupprimer}
           disabled={participant.statut !== "EN_ATTENTE"}
@@ -239,6 +295,7 @@ export default function OMDetailPage() {
         >
           Supprimer
         </button>
+        */}
 
         <button
           onClick={handleDownload}

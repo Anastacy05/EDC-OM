@@ -7,10 +7,15 @@ import Modal from "@/components/Modal";
 import { missionsParContinent, missionsParPaysDansContinent } from "@/lib/analytics";
 import type { Continent } from "@/lib/continents";
 import { titrePageClass, carteClass } from "@/lib/styles";
+import { useEstMonte } from "@/lib/useEstMonte";
 
 export default function CarteRapportPage() {
   const router = useRouter();
   const [continentOuvert, setContinentOuvert] = useState<Continent | null>(null);
+  // Garde-fou d'hydratation : les comptes dérivent de `mockOMs`, dont la valeur
+  // diffère entre serveur et client (cf. app/om/[id]/page.tsx). Ici l'écart
+  // toucherait aussi le REMPLISSAGE de la carte, pas seulement du texte.
+  const estMonte = useEstMonte();
 
   const comptesContinent = missionsParContinent();
   const comptesParContinent = Object.fromEntries(
