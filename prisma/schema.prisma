@@ -256,6 +256,7 @@ model Utilisateur {
   employe Employe? @relation(fields: [matricule], references: [matricule])
 
   jetons              JetonMotDePasse[]
+  sessions            SessionRenouvellement[]
   plagesNumero        PlageNumero[]
   missionsCreees      OrdreMission[]
   participationsConfirmees Participation[] @relation("confirmePar")
@@ -282,6 +283,39 @@ model JetonMotDePasse {
   utilisateur Utilisateur @relation(fields: [idUtilisateur], references: [id], onDelete: Cascade)
 
   @@map("jeton_mot_de_passe")
+}
+
+/// Session de renouvellement (« refresh token »).
+///
+/// Stratégie retenue : un jeton d'ACCÈS signé de courte durée (15 min) vit dans
+/// un cookie et n'est pas stocké ; ce jeton de RENOUVELLEMENT, lui, est en base
+/// et dure 30 jours. C'est ce qui rend la révocation possible : désactiver un
+/// compte invalide le renouvellement, donc l'accès tombe au plus tard 15 minutes
+/// plus tard. Une session purement sans état serait irrévocable.
+///
+/// Hors ligne, le jeton d'accès en cours reste valable et le Service Worker sert
+/// le cache — le renouvellement ne se fait qu'au retour du réseau.
+model SessionRenouvellement {
+  /// Haché (SHA-256), jamais le jeton en clair : une fuite de la base ne doit
+  /// pas permettre d'usurper une session en cours.
+  jetonHash     String @id @map("jeton_hash")
+  idUtilisateur BigInt @map("id_utilisateur")
+
+  expireLe       DateTime  @map("expire_le") @db.Timestamptz(6)
+  creeLe         DateTime  @default(now()) @map("cree_le") @db.Timestamptz(6)
+  dernierUsageLe DateTime? @map("dernier_usage_le") @db.Timestamptz(6)
+  /// Révocation explicite : déconnexion, ou désactivation du compte.
+  revoqueeLe     DateTime? @map("revoquee_le") @db.Timestamptz(6)
+
+  /// Pour qu'un utilisateur puisse reconnaître ses sessions actives, et pour
+  /// qu'une connexion depuis un poste inhabituel soit repérable.
+  agentUtilisateur String? @map("agent_utilisateur") @db.VarChar(300)
+  adresseIp        String? @map("adresse_ip") @db.Inet
+
+  utilisateur Utilisateur @relation(fields: [idUtilisateur], references: [id], onDelete: Cascade)
+
+  @@index([idUtilisateur], map: "idx_session_utilisateur")
+  @@map("session_renouvellement")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
