@@ -51,7 +51,7 @@ export default function CarteRapportPage() {
               {cle} — {count} mission{count > 1 ? "s" : ""}
             </button>
           ))}
-          {comptesContinent.length === 0 && (
+          {comptesContinent.length === 0 && estMonte && (
             <p className="text-gray-500">Aucune mission enregistrée pour l&apos;instant.</p>
           )}
         </div>
