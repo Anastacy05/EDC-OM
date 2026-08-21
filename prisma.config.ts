@@ -14,6 +14,11 @@ export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
+    // Lancé par `prisma db seed`, et automatiquement après un `migrate reset`.
+    // tsx et non `node` : le script importe les modules du projet (lib/zones.ts,
+    // lib/referentiels.ts…) pour DÉRIVER les référentiels au lieu de les
+    // recopier, et ces modules sont en TypeScript.
+    seed: "npx tsx prisma/seed.ts",
   },
   datasource: {
     url: process.env["DATABASE_URL"],
