@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
+// COMMENTÉ (21/08/2026) — plus aucun <Link> dans ce fichier : le seul lien
+// (« Consulter les ordres ») est devenu <RetourVers>, qui l'encapsule.
+// import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { addMockOM, genererProchainNumeroOM } from "@/lib/mockData";
 import { mockEmployees, findEmployeeByMatricule } from "@/lib/employees";
@@ -19,6 +21,7 @@ import {
 } from "@/lib/styles";
 import AutocompleteInput from "@/components/AutocompleteInput";
 import OMPreview from "@/components/OMPreview";
+import RetourVers from "@/components/RetourVers";
 import type { OrdreMission, VisaLeg, Frais } from "@/types/om";
 
 const emptyLeg: VisaLeg = {
@@ -100,10 +103,15 @@ export default function NouvelOMPage() {
   const [nomSaisi, setNomSaisi] = useState("");
   const [erreurAjout, setErreurAjout] = useState("");
 
-  // Signale au BackButton du header qu'il y a un brouillon en cours dès
-  // qu'un participant est ajouté — "Annuler" (dans la page) préserve déjà ce
-  // travail, mais rien n'empêchait avant de le perdre en quittant par le
-  // bouton retour du header, qui ignore l'état de cette page.
+  // Signale qu'un brouillon est en cours dès qu'un participant est ajouté.
+  //
+  // MIS À JOUR (21/08/2026) — le destinataire n'est plus le bouton du header
+  // (supprimé) mais `<RetourVers protegerBrouillon>` en haut de cette page.
+  //
+  // ⚠️ La protection ne couvre QUE ce lien. Un onglet du header cliqué depuis
+  // ici emporte toujours la saisie sans rien demander : l'App Router de Next
+  // n'expose pas de blocage de navigation. Sans objet à l'étape 8, où le
+  // brouillon sera persisté.
   useEffect(() => {
     if (participants.length > 0) signalerBrouillon();
     else effacerBrouillon();
@@ -468,18 +476,19 @@ export default function NouvelOMPage() {
   return (
     <div className="min-h-full w-full bg-blue-50">
       <div className="max-w-4xl mx-auto flex flex-col gap-8 p-10">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <h1 className={titrePageClass}>
-          Nouvel ordre de mission
-        </h1>
-        <Link
-          href="/om"
-          className="py-2 px-5 rounded-full bg-blue-700 hover:bg-blue-800 text-white
-                     shadow-md shadow-blue-950/20 hover:scale-105 transition-all duration-300"
-        >
-          ... Consulter les ordres
-        </Link>
-      </div>
+      {/* REMPLACÉ (21/08/2026) — un lien « ... Consulter les ordres » en gros
+          bouton bleu plein occupait le rang d'action PRINCIPALE de l'écran,
+          alors que la principale est « enregistrer l'ordre de mission » ; les
+          points de suspension du libellé étaient de surcroît un reste de
+          gabarit. C'est un retour, il prend donc la forme d'un retour — et il
+          protège le brouillon en cours, ce que le lien nu ne faisait pas. */}
+      <RetourVers
+        href="/om"
+        libelle="Retour à la liste des ordres de mission"
+        protegerBrouillon
+      />
+
+      <h1 className={titrePageClass}>Nouvel ordre de mission</h1>
 
       {erreurGenerale && (
         <div className="bg-red-100 border border-red-300 rounded-xl p-4 text-red-700 text-sm">

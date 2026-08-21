@@ -13,6 +13,7 @@ import {
 } from "@/lib/mockData";
 import { buildDocumentForParticipant } from "@/lib/buildDocument";
 import { formatDateFR, formatHeureFR } from "@/lib/dateUtils";
+import RetourVers from "@/components/RetourVers";
 import { titrePageClass } from "@/lib/styles";
 import { useEstMonte } from "@/lib/useEstMonte";
 import { verifierConcurrence } from "@/lib/businessRules";
@@ -212,12 +213,15 @@ export default function OMDetailPage() {
 
   return (
     <div className="min-h-full w-full bg-blue-50 py-10">
-      <div className="flex items-center justify-between flex-wrap py-10 px-20">
-        <h1 className={titrePageClass}>
-          Détails de l&apos;ordre de mission
-        </h1>
-        {/* Le lien "Consulter les autres" a été retiré : le bouton Retour du
-            Header mène désormais à la liste depuis toutes les pages. */}
+      <div className="flex flex-col gap-4 py-10 px-6 sm:px-12 lg:px-20">
+        {/* MIS À JOUR (21/08/2026) — le commentaire précédent renvoyait au
+            « bouton Retour du Header », qui n'existe plus : il déduisait sa
+            destination de l'URL et se trompait dès qu'on arrivait ici depuis un
+            rapport. Le retour est maintenant posé par la page, avec une
+            destination nommée. */}
+        <RetourVers href="/om" libelle="Retour à la liste des ordres de mission" />
+
+        <h1 className={titrePageClass}>Détails de l&apos;ordre de mission</h1>
       </div>
       {/* Navigation entre les documents si la mission concerne plusieurs employés */}
       {om.participants.length > 1 && (

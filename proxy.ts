@@ -5,6 +5,7 @@ import {
   COOKIE_RENOUVELLEMENT,
   EN_TETE_CHEMIN,
 } from "@/lib/auth/jeton";
+import { PREFIXES_ADMIN, sectionActive } from "@/lib/navigation";
 
 /**
  * Proxy — filtrage d'accès avant que la requête n'atteigne l'application.
@@ -106,9 +107,17 @@ export default async function proxy(requete: NextRequest) {
   const session = await lireJetonAcces(requete.cookies.get(COOKIE_ACCES)?.value);
   if (session) {
     // Contrôle optimiste du rôle : évite d'afficher la coquille d'une page
-    // d'administration à un utilisateur ordinaire avant que le layout ne le
-    // renvoie. La vérification qui compte reste celle du layout serveur.
-    if (chemin.startsWith("/admin") && session.role !== "ADMINISTRATEUR") {
+    // réservée à un utilisateur ordinaire avant que le layout ne le renvoie.
+    // La vérification qui compte reste celle du layout de section.
+    //
+    // Les préfixes viennent de `lib/navigation.ts`, la même liste qui construit
+    // les onglets. Les recopier ici créerait le défaut classique : ajouter une
+    // section réservée, oublier de la déclarer au proxy, et la laisser ouverte.
+    if (
+      session.role !== "ADMINISTRATEUR" &&
+      PREFIXES_ADMIN.some((prefixe) => sectionActive(chemin, prefixe))
+    ) {
+      if (estApi) return refusApi();
       return NextResponse.redirect(new URL("/?acces=refuse", requete.nextUrl));
     }
     return suite;

@@ -7,6 +7,7 @@ import Modal from "@/components/Modal";
 import { missionsParContinent, missionsParPaysDansContinent } from "@/lib/analytics";
 import type { Continent } from "@/lib/continents";
 import { titrePageClass, carteClass } from "@/lib/styles";
+import RetourVers from "@/components/RetourVers";
 import { useEstMonte } from "@/lib/useEstMonte";
 
 export default function CarteRapportPage() {
@@ -31,6 +32,11 @@ export default function CarteRapportPage() {
 
   return (
     <div className="min-h-full w-full bg-blue-50 flex flex-col gap-8 p-10">
+      {/* Destination DÉCLARÉE, jamais déduite de l'URL : ces rapports
+          renvoient vers /om?filtre=… , donc un retour calculé sur le chemin
+          courant se tromperait. */}
+      <RetourVers href="/rapports" libelle="Retour aux rapports" />
+
       <h1 className={titrePageClass}>Missions par continent</h1>
 
       <div className={`${carteClass} max-w-5xl`}>

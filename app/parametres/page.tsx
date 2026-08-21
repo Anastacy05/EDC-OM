@@ -1,30 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { configOM, mettreAJourConfig, reinitialiserConfig } from "@/lib/config";
 import { useEstMonte } from "@/lib/useEstMonte";
 import { inputClass, carteClass, legendClass, titrePageClass } from "@/lib/styles";
 
-const RAPPORTS = [
-  {
-    href: "/admin/carte",
-    titre: "Carte du monde",
-    description: "Nombre de missions par continent, avec zoom par pays.",
-  },
-  {
-    href: "/admin/frise",
-    titre: "Frise chronologique",
-    description: "Nombre de missions par année, avec détail par mois.",
-  },
-  {
-    href: "/admin/pyramide",
-    titre: "Pyramide hiérarchique",
-    description: "Nombre de missions par statut, avec détail par employé.",
-  },
-];
+// DÉPLACÉ (21/08/2026) — le tableau RAPPORTS vit maintenant dans
+// app/rapports/page.tsx, avec les adresses à jour (/rapports/... et non
+// /admin/...). Le garder ici en aurait fait une seconde source de vérité,
+// vouée à diverger de celle des onglets.
+//
+// `Link` n'est plus importé pour la même raison : plus aucun lien sur cette page.
 
-export default function AdminPage() {
+export default function ParametresPage() {
   const estMonte = useEstMonte();
 
   // Initialiseur paresseux : lu une seule fois, après hydratation (le rendu
@@ -50,16 +38,35 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="h-full w-full bg-blue-50 flex flex-col gap-8 p-10">
-      <h1 className={titrePageClass}>Administration</h1>
+    <div className="h-full w-full bg-blue-50 flex flex-col gap-8 p-6 sm:p-10">
+      <h1 className={titrePageClass}>Paramètres</h1>
 
       <div className="w-full flex flex-col items-center justify-center gap-10">
-        {/* Même parti pris que les boutons désactivés du Header : on affiche
-            ce qui n'existe pas encore plutôt que de laisser croire le
-            contraire. */}
+        {/* COMMENTÉ (21/08/2026) — l'avertissement est devenu FAUX : la page est
+            désormais protégée par `app/parametres/layout.tsx`
+            (`exigerAdministrateur`), par le filtrage du proxy sur les préfixes
+            réservés, et par les gardes du DAL. Vérifié : une session
+            UTILISATEUR reçoit `307 → /?acces=refuse`, et un rôle forgé dans le
+            jeton casse la signature.
+
+            Le laisser afficherait une inquiétude infondée, ce qui est aussi
+            trompeur que l'inverse.
+
         <div className="bg-red-100 border border-red-300 rounded-xl p-4 text-red-700 text-sm">
           Cette page n&apos;est protégée par aucune authentification — les rôles ne sont pas encore
           implémentés. Toute personne connaissant l&apos;adresse peut modifier ces réglages.
+        </div>
+        */}
+
+        {/* En revanche CECI reste vrai, et c'est la limite du moment : les
+            réglages vivent dans `localStorage`, donc ils sont propres au
+            navigateur de la personne connectée et ne s'appliquent pas aux
+            autres. La bascule vers la table `configuration` est l'étape 9. */}
+        <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 text-amber-900 text-sm max-w-2xl">
+          Ces réglages sont encore enregistrés <strong>dans ce navigateur</strong> et non
+          en base : ils ne s&apos;appliquent qu&apos;à votre poste. La table{" "}
+          <code>configuration</code> existe déjà en base et prendra le relais à
+          l&apos;étape 9.
         </div>
 
         {!estMonte ? (
@@ -119,21 +126,12 @@ export default function AdminPage() {
             </div>
           </>
         )}
-        
-        <h1 className={titrePageClass}>Rapports</h1>
 
-	      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-4xl">
-		{RAPPORTS.map((r) => (
-		  <Link key={r.href} href={r.href} className={`${carteClass} hover:shadow-lg transition-shadow`}>
-		    <h2 className="text-amber-700 font-semibold text-lg">{r.titre}</h2>
-		    <p className="text-sm text-gray-600">{r.description}</p>
-		  </Link>
-		))}
-	      </div>
-
-	      <Link href="/om" className="text-blue-700 hover:underline text-sm w-fit">
-		← Voir la liste complète des ordres de mission
-	      </Link>
+        {/* DÉPLACÉ (21/08/2026) — le bloc « Rapports » et le lien vers la liste
+            des OM vivent maintenant dans app/rapports/page.tsx et dans les
+            onglets du header. Cette page mélangeait deux natures : un réglage
+            qui S'ÉCRIT et des rapports qui se LISENT. Les onglets les séparent,
+            et le tableau RAPPORTS n'avait pas à être dupliqué ici. */}
       </div>
     </div>
   );

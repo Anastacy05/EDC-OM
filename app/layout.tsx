@@ -42,9 +42,12 @@ export default function RootLayout({
             lieu de piéger le contenu dans un conteneur à scroll interne.
             w-screen est volontairement absent : il vaut 100vw, barre de
             défilement comprise, ce qui provoque un débordement horizontal. */}
-        {/* BrouillonProvider englobe Header ET main : c'est ce qui permet à
-            BackButton (dans Header) de savoir qu'une page enfant (ex.
-            /om/nouveau) a un brouillon non enregistré en cours. */}
+        {/* MIS À JOUR (21/08/2026) — BackButton n'est plus dans le Header : il
+            est devenu `RetourVers`, posé par chaque page avec une destination
+            déclarée. Le provider reste ici parce que le brouillon est signalé
+            par une page (/om/nouveau) et lu par un composant de cette même page :
+            il leur faut une instance de contexte commune, et l'englober au
+            niveau racine est le plus simple qui marche. */}
         <BrouillonProvider>
           <div className="min-h-dvh flex flex-col">
             <Header />

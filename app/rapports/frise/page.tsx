@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Modal from "@/components/Modal";
 import { missionsParAnnee, missionsParMoisDansAnnee, bornesDuMois, NOMS_MOIS } from "@/lib/analytics";
 import { titrePageClass, carteClass } from "@/lib/styles";
+import RetourVers from "@/components/RetourVers";
 import { useEstMonte } from "@/lib/useEstMonte";
 
 export default function FriseRapportPage() {
@@ -29,6 +30,11 @@ export default function FriseRapportPage() {
 
   return (
     <div className="min-h-full w-full bg-blue-50 flex flex-col gap-8 p-10">
+      {/* Destination DÉCLARÉE, jamais déduite de l'URL : ces rapports
+          renvoient vers /om?filtre=… , donc un retour calculé sur le chemin
+          courant se tromperait. */}
+      <RetourVers href="/rapports" libelle="Retour aux rapports" />
+
       <h1 className={titrePageClass}>Missions par année</h1>
 
       <div className={`${carteClass} max-w-4xl`}>

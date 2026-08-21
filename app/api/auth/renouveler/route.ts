@@ -36,7 +36,42 @@ export async function GET(requete: NextRequest) {
   // en échec renverrait ici indéfiniment.
   const destination = suite.startsWith("/api/auth/") ? "/" : suite;
 
-  const session = await renouvelerSession();
+  let session: Awaited<ReturnType<typeof renouvelerSession>>;
+  try {
+    session = await renouvelerSession();
+  } catch (erreur) {
+    // ⚠️ DISTINCTION ESSENTIELLE, apprise d'un vrai incident (21/08/2026) :
+    // Docker arrêté → `ECONNREFUSED` → cette route répondait 500.
+    //
+    // Un échec d'INFRASTRUCTURE n'est pas un jeton invalide. Les confondre
+    // aurait deux conséquences graves :
+    //
+    //   1. effacer les cookies déconnecterait tout le monde à chaque coupure de
+    //      base, alors que les sessions sont parfaitement valides ;
+    //   2. renvoyer vers /connexion serait un mensonge : le mot de passe ne
+    //      règlerait rien, la connexion échouerait tout autant.
+    //
+    // On répond donc **503** en CONSERVANT les cookies. Pas de boucle : la
+    // réponse est terminale, l'utilisateur reste sur cette page. Dès que la base
+    // revient, un simple rechargement reprend la session là où elle était.
+    console.error("[renouvellement] base injoignable :", erreur);
+    return NextResponse.json(
+      {
+        erreur: "Service momentanément indisponible.",
+        detail:
+          "La base de données ne répond pas. Votre session n'est pas perdue : " +
+          "rechargez la page une fois le service rétabli.",
+      },
+      {
+        status: 503,
+        headers: {
+          "Cache-Control": "no-store",
+          // Indique au navigateur qu'un nouvel essai a du sens, et quand.
+          "Retry-After": "30",
+        },
+      }
+    );
+  }
 
   if (!session) {
     // Jeton inconnu, révoqué hors fenêtre de grâce, expiré, ou compte

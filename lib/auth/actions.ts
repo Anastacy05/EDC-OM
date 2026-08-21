@@ -119,7 +119,26 @@ export async function connecter(
     };
   }
 
-  const compte = await trouverCompteParEmail(email);
+  // ⚠️ La lecture peut échouer pour une raison qui n'a rien à voir avec les
+  // identifiants : base arrêtée, réseau coupé. Constaté le 21/08/2026 avec
+  // Docker éteint. Sans ce filet, l'action lève et le formulaire affiche l'écran
+  // d'erreur générique de Next — l'utilisateur croit s'être trompé de mot de
+  // passe et réessaie en boucle.
+  //
+  // Le message DOIT être distinct de celui d'un mauvais mot de passe, et c'est
+  // le seul endroit où l'on s'autorise à en dire plus : ici il n'y a rien à
+  // dissimuler, l'information ne porte sur aucun compte.
+  let compte: Awaited<ReturnType<typeof trouverCompteParEmail>>;
+  try {
+    compte = await trouverCompteParEmail(email);
+  } catch (erreur) {
+    console.error("[connexion] base injoignable :", erreur);
+    return {
+      erreur:
+        "Le service est momentanément indisponible (base de données injoignable). " +
+        "Réessayez dans quelques instants.",
+    };
+  }
 
   // Un seul message pour tous les échecs — compte inconnu, mot de passe faux,
   // compte désactivé, invitation jamais honorée. Distinguer « ce compte
