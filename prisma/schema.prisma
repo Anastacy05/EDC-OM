@@ -62,6 +62,28 @@ enum SituationFamille {
   VEUF
 }
 
+/// Motif d'extinction d'une fiche employé.
+///
+/// Liste fermée, et l'ordre compte : les départs DÉFINITIFS d'abord, les
+/// suspensions ensuite. La distinction est celle qui pilote les règles — une
+/// suspension conserve un solde de congés, un départ définitif le clôt.
+///
+/// `AUTRE` existe parce qu'une liste fermée trop stricte pousse à ranger de
+/// force un cas réel dans une case fausse ; la note libre `note_sortie` en porte
+/// alors le détail.
+enum MotifSortie {
+  RETRAITE
+  DECES
+  DEMISSION
+  LICENCIEMENT
+  FIN_DE_CONTRAT
+  /// Départ vers une autre administration : la fiche peut revenir (art. 81-6).
+  DETACHEMENT
+  /// Suspension temporaire — congé sans solde, disponibilité.
+  SUSPENSION
+  AUTRE
+}
+
 enum NatureFrais {
   PREVISIONNEL
   REEL
@@ -223,6 +245,19 @@ model Employe {
   /// Sert à invalider un OM créé APRÈS la désactivation de l'employé.
   desactiveLe DateTime? @map("desactive_le") @db.Timestamptz(6)
 
+  /// Pourquoi la fiche est éteinte. **FACULTATIF** (décision du 21/08/2026) :
+  /// l'admin peut désactiver sans motiver, une désactivation urgente ne doit pas
+  /// être bloquée par un champ à remplir.
+  ///
+  /// Ajouté parce que `actif = false` ne disait rien : « en congé sans solde »,
+  /// « parti à la retraite » et « décédé » n'ont pas les mêmes suites — un décès
+  /// clôt un solde de congés, une retraite est prévisible, une démission peut se
+  /// retourner. Sans cette colonne, l'information est PERDUE et non simplement
+  /// absente : elle n'est pas retrouvable après coup.
+  motifSortie MotifSortie? @map("motif_sortie")
+  /// Précision libre — référence d'un acte, date d'effet réelle, circonstances.
+  noteSortie  String?      @map("note_sortie")
+
   statut      Statut      @relation(fields: [codeStatut], references: [code])
   departement Departement @relation(fields: [codeDepartement], references: [code])
 
@@ -244,6 +279,27 @@ model Utilisateur {
   /// par courriel. Haché uniquement (argon2id ou bcrypt), jamais en clair.
   motDePasseHash String? @map("mot_de_passe_hash")
   role           RoleUtilisateur
+
+  /// Droit de créer et de révoquer d'AUTRES administrateurs.
+  ///
+  /// ── Pourquoi une colonne et non « le compte au plus petit identifiant » ────
+  ///
+  /// « Seul le premier administrateur » se lit naturellement comme `ORDER BY id
+  /// LIMIT 1`, mais ce raccourci a trois défauts concrets :
+  ///
+  ///   1. si ce compte est désactivé, PERSONNE ne peut plus créer
+  ///      d'administrateur — l'application se verrouille sans recours ;
+  ///   2. le droit n'est pas transmissible : un fondateur qui quitte l'EDC
+  ///      emporte la capacité avec lui ;
+  ///   3. l'identifiant est un détail de stockage. Y accrocher une règle
+  ///      d'autorisation rend le comportement dépendant de l'ordre d'insertion,
+  ///      donc invisible à la lecture du modèle.
+  ///
+  /// Une colonne explicite se lit, se transfère, et survit à une désactivation.
+  /// Elle n'est POSABLE que depuis `prisma/creerCompte.ts`, donc depuis un accès
+  /// serveur : aucun écran ne peut se l'attribuer, ce qui évite qu'un
+  /// administrateur ordinaire se promeuve lui-même.
+  estFondateur Boolean @default(false) @map("est_fondateur")
 
   /// Un compte PEUT correspondre à un employé — un compte technique
   /// d'administration peut n'être rattaché à personne.

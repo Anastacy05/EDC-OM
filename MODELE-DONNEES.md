@@ -1624,9 +1624,13 @@ L'ordre n'est pas indifférent : chaque étape n'exige que ce que les précéden
    gardes du DAL (`lib/auth/garde.ts`), `/connexion`, `/mot-de-passe/[jeton]`, filtrage
    par `proxy.ts`, protection de `/admin`, et `prisma/creerCompte.ts` pour amorcer un
    compte. Détail des choix au §14.
-7. `employe` : CRUD admin, plus l'**envoi** du mail de définition du mot de passe
-   (`mail_en_attente`). Le jeton et sa consommation existent déjà (étape 6) ; il ne
-   manque que l'expédition — aujourd'hui le lien est imprimé par le script.
+7. `employe` : CRUD admin — ✅ **fait le 21/08/2026**, sauf l'envoi du courriel.
+   En place : `lib/data/employes.ts` (gardes dans chaque fonction, DTO en sortie),
+   `lib/data/employes.validation.ts`, `/personnel` avec recherche et filtres portés par
+   l'URL, `/personnel/nouveau`, `/personnel/[matricule]` avec bloc compte et
+   activation/désactivation. **Reste : l'expédition** — le jeton et sa consommation
+   existent, le lien est aujourd'hui affiché à l'écran pour transmission manuelle, en
+   attente du choix du fournisseur (§12). Détail au §15.
 8. `ordre_mission` + `participation` : création, puis **validation avec détection de
    conflit** (§1) — c'est le cœur métier, et il dépend de tout ce qui précède.
 9. Bascule des pages admin en composants serveur. `lib/useEstMonte.ts` devient inutile.
@@ -1691,3 +1695,43 @@ Trois couches, dont **une seule fait autorité** :
 Le renouvellement, lui, est concentré dans `app/api/auth/renouveler/route.ts` : c'est le seul contexte qui peut à la fois lire la base et écrire des cookies sur une simple navigation. Vérifié le 21/08/2026 : Prisma **fonctionne** dans le proxy (runtime Node depuis Next 16, `server-only` ne s'y oppose pas) — le choix de ne pas l'y mettre est délibéré, pas contraint.
 
 
+
+---
+
+## 15. Personnel — décisions et limites (21/08/2026)
+
+### 15.1 Ce qui a été tranché
+
+| Décision | Retenu | Pourquoi |
+|---|---|---|
+| Suppression d'un employé | **Jamais.** Désactivation datée | Les participations aux OM référencent le matricule ; un OM signé par le DG reste un acte d'autorité après un départ |
+| Matricule modifiable | **Non**, après création | C'est la clé primaire. Une erreur se corrige en désactivant la fiche et en créant la bonne |
+| Rôle attribuable depuis l'écran | **Non**, `UTILISATEUR` seulement | Promouvoir un administrateur depuis un écran de gestion serait une élévation de privilège trop facile. Réservé à `prisma/creerCompte.ts`, donc à un accès serveur |
+| Où vivent les filtres | **Dans l'URL** | Recherche partageable, bouton « précédent » fonctionnel, et surtout filtrage en **SQL** — la page reste un composant serveur |
+| Validateur de schéma (zod) | **Non** | La base porte déjà les contraintes dures (FK, CHECK, enum). Cette couche produit des **messages**, pas de la sûreté : un oubli ne peut pas créer d'incohérence |
+
+### 15.2 La désactivation ferme réellement l'accès
+
+Vérifié en base après l'action, en une seule transaction :
+
+| Effet | Constaté |
+|---|---|
+| `employe.actif` | `false` |
+| `employe.desactive_le` | posée (contrainte `CHECK (actif OR desactive_le IS NOT NULL)`) |
+| `utilisateur.actif` | `false` |
+| Sessions en cours | révoquées |
+| Invitations non utilisées | annulées |
+
+Sans le dernier point, un lien resté dans une boîte aux lettres aurait rouvert un accès qu'on venait de fermer.
+
+### 15.3 Validation : les 11 règles refusent
+
+Toutes vérifiées contre le serveur réel : matricule vide, nom vide, statut inconnu, direction inconnue, **31 février**, embauche antérieure à la naissance, embauche dans le futur, âge invraisemblable, médailles négatives, médailles invraisemblables, détaché sans droit d'origine.
+
+### 15.4 Limites connues
+
+1. **L'envoi par courriel n'existe pas.** Le lien d'invitation est **affiché à l'écran** pour transmission manuelle. Ce n'est pas moins sûr que le courriel — qui circule aussi en clair — mais ça repose sur la discipline de l'administrateur. **À trancher : le fournisseur** (serveur SMTP de l'EDC, Resend, Brevo).
+2. **La recherche n'est pas insensible aux accents.** « rene » ne trouve pas « RENÉ ». L'extension `unaccent` est installée mais Prisma ne l'expose pas ; il faudrait un index `unaccent(nom)` et une requête `$queryRaw`. À traiter si les RH le signalent.
+3. **Pas de pagination.** Toute la liste filtrée est chargée. Sans objet à quelques centaines d'employés, à revoir au-delà.
+4. **Pas de journal des modifications.** Qui a changé quoi, quand, n'est pas tracé. La session est connue, donc c'est faisable — mais aucune table ne l'accueille aujourd'hui.
+5. **`lib/employees.ts` (données de démonstration) est toujours là**, et les écrans d'OM lisent encore `localStorage`. Les deux sources coexistent jusqu'à l'étape 8. À commenter à l'étape 14.

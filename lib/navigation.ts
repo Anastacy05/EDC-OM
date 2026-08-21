@@ -67,8 +67,7 @@ export const SECTIONS: readonly Section[] = [
     libelle: "Personnel",
     icone: "personnel",
     adminSeulement: true,
-    disponible: false,
-    motifIndisponible: "Gestion du personnel — pas encore développée",
+    disponible: true,
   },
   {
     href: "/rapports",
