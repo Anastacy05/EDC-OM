@@ -1,6 +1,7 @@
 import Image from "next/image";
-import Link from "next/link";
+import { Suspense } from "react";
 import BackButton from "@/components/BackButton";
+import ZoneSession, { SqueletteZoneSession } from "@/components/ZoneSession";
 
 export default function Header() {
   return (
@@ -19,20 +20,25 @@ export default function Header() {
       </div>
 
       <div className="flex items-center justify-center gap-2 sm:gap-4 md:gap-6 lg:gap-10 flex-wrap transition-all duration-500">
-        {/* Seul lien réellement actif de ce groupe. Le Header reste un
-            composant serveur : next/link n'a pas besoin de "use client"
-            (contrairement à BackButton, qui lit usePathname). */}
-        <Link
-          href="/admin"
-          className="py-2 px-4 rounded-lg bg-white/90 text-blue-800 shadow-md shadow-blue-950/20
-                     hover:bg-white hover:scale-105 transition-all duration-300"
-        >
-          Admin
-        </Link>
+        {/* Suspense : lire la session est dynamique (cookies + base). Sans cette
+            frontière, l'attente remonterait au layout racine et retarderait le
+            premier octet de TOUTES les pages — la doc appelle à « push dynamic
+            access down ». Le Header lui-même reste statique. */}
+        <Suspense fallback={<SqueletteZoneSession />}>
+          <ZoneSession />
+        </Suspense>
 
-        {/* Pas encore fonctionnels (pas d'authentification) — désactivés
-            visuellement plutôt que cachés, pour ne pas donner l'impression
-            que ces fonctionnalités existent déjà. */}
+        {/* COMMENTÉ (21/08/2026) — remplacés par ZoneSession, qui affiche
+            réellement l'état de connexion.
+
+            « S'inscrire » ne reviendra pas : il n'y a pas d'inscription libre
+            dans cette application. Les comptes sont créés par l'administrateur
+            avec le matricule de l'employé, et le titulaire définit son mot de
+            passe par le lien reçu par courriel. Laisser une inscription ouverte
+            permettrait de créer un compte sans matricule, donc sans employé —
+            et de contourner l'appariement compte/employé sur lequel reposent
+            les quotas de mission et les soldes de congés.
+
         <div
           title="Pas encore disponible"
           className="py-2 px-4 rounded-lg bg-blue-300/50 text-white/70 shadow-md cursor-not-allowed shadow-blue-950/20"
@@ -45,6 +51,11 @@ export default function Header() {
         >
           Se Connecter
         </div>
+        */}
+
+        {/* Toujours pas fonctionnels — désactivés visuellement plutôt que
+            cachés, pour ne pas donner l'impression que ces fonctionnalités
+            existent déjà. */}
         <div
           title="Pas encore disponible"
           className="p-2 rounded-lg bg-amber-200/50 text-blue-800/50 shadow-md cursor-not-allowed shadow-amber-800/20"

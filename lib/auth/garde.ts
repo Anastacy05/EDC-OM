@@ -1,9 +1,10 @@
 import "server-only";
 
 import { cache } from "react";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { lireJetonAcces, renouvelerSession, NOMS_COOKIES, type Session, type Role } from "@/lib/auth/session";
+import { renouvelerSession } from "@/lib/auth/session";
+import { lireJetonAcces, NOMS_COOKIES, EN_TETE_CHEMIN, type Session, type Role } from "@/lib/auth/jeton";
 
 /**
  * Garde d'autorisation. **À appeler dans CHAQUE fonction qui lit ou écrit des
@@ -19,6 +20,10 @@ import { lireJetonAcces, renouvelerSession, NOMS_COOKIES, type Session, type Rol
  * Function est une route HTTP joignable directement. La vérification doit donc
  * vivre au plus près de la donnée — ici — et pas dans le composant qui l'affiche.
  *
+ * Le proxy (`proxy.ts`) fait un premier tri, mais il ne remplace pas ces
+ * gardes, et la doc dit pourquoi : « A matcher change or a refactor that moves a
+ * Server Function to a different route can silently remove Proxy coverage. »
+ *
  * `cache()` de React mémoïse le résultat pour la durée d'UNE requête : appeler
  * `exigerSession()` dans dix fonctions différentes ne vérifie le jeton qu'une
  * fois. C'est ce qui rend la règle « partout » tenable sans coût.
@@ -27,9 +32,6 @@ import { lireJetonAcces, renouvelerSession, NOMS_COOKIES, type Session, type Rol
 /**
  * Session courante, ou `null`. Ne redirige pas — pour les cas où l'absence de
  * session est un état normal (page de connexion, affichage conditionnel).
- *
- * Tente un renouvellement si le jeton d'accès est expiré : l'utilisateur n'est
- * pas déconnecté toutes les 15 minutes.
  */
 export const lireSession = cache(async (): Promise<Session | null> => {
   const boite = await cookies();
@@ -39,16 +41,37 @@ export const lireSession = cache(async (): Promise<Session | null> => {
   // Jeton d'accès absent ou expiré : on tente le renouvellement, qui relit
   // l'état du compte en base et échoue si celui-ci a été désactivé.
   //
-  // ⚠️ Ne fonctionne que depuis un contexte autorisé à écrire des cookies
-  // (Server Action ou Route Handler). Dans un composant serveur, Next interdit
-  // la modification de cookies pendant le rendu — d'où le try/catch : on
-  // renvoie alors `null`, et la navigation suivante renouvellera.
+  // ⚠️ Ne réussit QUE depuis un contexte autorisé à écrire des cookies : Server
+  // Action ou Route Handler. Pendant le rendu d'un composant serveur, Next
+  // interdit la modification de cookies et lève — d'où le try/catch, qui rend
+  // alors `null`.
+  //
+  // Ce n'est pas une faille mais une répartition : sur une navigation (GET), le
+  // renouvellement a déjà eu lieu dans le proxy, qui redirige vers
+  // /api/auth/renouveler avant que le rendu ne commence. Il ne reste donc ici
+  // que le cas des Server Actions, où l'écriture est justement permise.
   try {
     return await renouvelerSession();
   } catch {
     return null;
   }
 });
+
+/**
+ * Chemin demandé, publié par le proxy dans un en-tête de requête.
+ *
+ * Un composant serveur ne connaît pas l'URL courante : il n'y a pas
+ * d'équivalent serveur à `usePathname()`. Sans cet en-tête, la redirection vers
+ * la connexion perdrait la destination voulue et ramènerait tout le monde à
+ * l'accueil après authentification.
+ */
+async function cheminCourant(): Promise<string | null> {
+  try {
+    return (await headers()).get(EN_TETE_CHEMIN);
+  } catch {
+    return null; // hors contexte de requête (rendu statique)
+  }
+}
 
 /**
  * Session courante, ou redirection vers la page de connexion.
@@ -59,8 +82,10 @@ export const lireSession = cache(async (): Promise<Session | null> => {
  */
 export const exigerSession = cache(async (): Promise<Session> => {
   const session = await lireSession();
-  if (!session) redirect("/connexion");
-  return session;
+  if (session) return session;
+
+  const chemin = await cheminCourant();
+  redirect(chemin ? `/connexion?retour=${encodeURIComponent(chemin)}` : "/connexion");
 });
 
 /**

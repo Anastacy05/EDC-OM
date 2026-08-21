@@ -1,12 +1,28 @@
 import "server-only";
 
-import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/data/client";
 import { genererJeton, hacherJeton } from "@/lib/auth/motDePasse";
+import {
+  COOKIE_ACCES,
+  COOKIE_RENOUVELLEMENT,
+  DUREE_ACCES_SECONDES,
+  DUREE_RENOUVELLEMENT_JOURS,
+  cleSignature,
+  lireJetonAcces,
+  optionsCookie,
+  signerAcces,
+  NOMS_COOKIES,
+  type Role,
+  type Session,
+} from "@/lib/auth/jeton";
 
 /**
  * Sessions : jeton d'accès court + jeton de renouvellement révocable.
+ *
+ * La partie purement cryptographique (signature, vérification, noms de cookies)
+ * vit dans `lib/auth/jeton.ts`, qui n'est PAS `server-only` — le proxy doit
+ * pouvoir l'importer. Ce module-ci ajoute tout ce qui touche la base.
  *
  * ── Pourquoi deux jetons ─────────────────────────────────────────────────────
  *
@@ -28,74 +44,28 @@ import { genererJeton, hacherJeton } from "@/lib/auth/motDePasse";
  * reste utilisable hors ligne le temps du jeton d'accès en cours.
  */
 
-const COOKIE_ACCES = "edc_om_acces";
-const COOKIE_RENOUVELLEMENT = "edc_om_renouvellement";
-
-const DUREE_ACCES_SECONDES = 15 * 60; // 15 min
-const DUREE_RENOUVELLEMENT_JOURS = 30;
-
-export type Role = "ADMINISTRATEUR" | "UTILISATEUR";
-
-export interface Session {
-  idUtilisateur: string; // BigInt sérialisé : un BigInt ne passe pas dans un JWT
-  email: string;
-  role: Role;
-  /** Matricule de l'employé rattaché, absent pour un compte purement technique. */
-  matricule: string | null;
-}
-
 /**
- * Clé de signature. Lue paresseusement et non au chargement du module : un
- * `throw` au niveau module ferait échouer le build de pages qui n'ont rien à
- * voir avec l'authentification, avec un message peu clair.
+ * Fenêtre de grâce sur la rotation du jeton de renouvellement.
+ *
+ * ── Le problème qu'elle règle ────────────────────────────────────────────────
+ *
+ * Avec une rotation stricte, deux requêtes concurrentes portant le même jeton
+ * se marchent dessus : la première le révoque et en émet un nouveau, la seconde
+ * présente un jeton désormais révoqué et échoue — l'utilisateur est déconnecté
+ * sans raison. Et ce cas n'est pas théorique : Next précharge les routes au
+ * survol des liens, donc plusieurs requêtes partent réellement en parallèle.
+ *
+ * On accepte donc un jeton révoqué depuis moins de GRACE_MS, en émettant un
+ * couple neuf. Les lignes surnuméraires ainsi créées sont sans conséquence :
+ * elles expirent avec la session d'origine.
+ *
+ * ── Ce que ça coûte ──────────────────────────────────────────────────────────
+ *
+ * Un jeton volé rejoué dans les 60 secondes suivant un usage légitime passe.
+ * Au-delà, il échoue. C'est le compromis retenu par les recommandations OAuth
+ * sur la rotation (RFC 9700), pour cette raison exacte.
  */
-function cleSignature(): Uint8Array {
-  const secret = process.env.AUTH_SECRET;
-  if (!secret || secret.length < 32) {
-    throw new Error(
-      "AUTH_SECRET absente ou trop courte (32 caractères minimum). " +
-        "Générer une valeur avec : node -e \"console.log(require('crypto').randomBytes(48).toString('base64url'))\""
-    );
-  }
-  return new TextEncoder().encode(secret);
-}
-
-// ---------------------------------------------------------------------------
-// Jeton d'accès (JWT)
-// ---------------------------------------------------------------------------
-
-async function signerAcces(session: Session): Promise<string> {
-  return new SignJWT({ ...session } as unknown as JWTPayload)
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime(`${DUREE_ACCES_SECONDES}s`)
-    .sign(cleSignature());
-}
-
-/**
- * Vérifie un jeton d'accès. Renvoie `null` si absent, expiré, ou signé avec une
- * autre clé — jamais d'exception, pour que l'appelant traite tous les cas
- * d'échec de la même façon.
- */
-export async function lireJetonAcces(jeton: string | undefined): Promise<Session | null> {
-  if (!jeton) return null;
-  try {
-    const { payload } = await jwtVerify(jeton, cleSignature(), {
-      algorithms: ["HS256"], // liste explicite : interdit qu'un jeton force `alg: none`
-    });
-    const { idUtilisateur, email, role, matricule } = payload as unknown as Session;
-    if (!idUtilisateur || !email || (role !== "ADMINISTRATEUR" && role !== "UTILISATEUR")) {
-      return null;
-    }
-    return { idUtilisateur, email, role, matricule: matricule ?? null };
-  } catch {
-    return null;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Ouverture, renouvellement et fermeture de session
-// ---------------------------------------------------------------------------
+const GRACE_MS = 60_000;
 
 /**
  * Pose les deux cookies après une authentification réussie, et enregistre le
@@ -121,16 +91,7 @@ export async function ouvrirSession(
   });
 
   const boite = await cookies();
-  const communs = {
-    httpOnly: true, // inaccessible à document.cookie, donc au XSS
-    secure: process.env.NODE_ENV === "production", // en dev, localhost est en HTTP
-    // "lax" et non "strict" : "strict" n'envoie aucun cookie lors d'une
-    // navigation venue d'un lien externe, ce qui déconnecterait l'utilisateur
-    // arrivant depuis le lien d'un courriel. "lax" bloque toujours les
-    // requêtes POST inter-sites, donc le CSRF qui compte ici.
-    sameSite: "lax" as const,
-    path: "/",
-  };
+  const communs = optionsCookie();
 
   boite.set(COOKIE_ACCES, await signerAcces(session), {
     ...communs,
@@ -151,7 +112,11 @@ export async function ouvrirSession(
  *
  * ⚠️ ROTATION : le jeton de renouvellement est remplacé à chaque usage. Si un
  * jeton volé est réutilisé après que le titulaire légitime s'en est servi, il
- * est déjà révoqué — la fenêtre d'exploitation se réduit à un seul usage.
+ * est déjà révoqué — la fenêtre d'exploitation se réduit à GRACE_MS.
+ *
+ * ⚠️ ÉCRIT DES COOKIES : à n'appeler que depuis un contexte qui l'autorise —
+ * Server Action ou Route Handler. Next interdit la modification de cookies
+ * pendant le rendu d'un composant serveur.
  */
 export async function renouvelerSession(): Promise<Session | null> {
   const boite = await cookies();
@@ -167,10 +132,18 @@ export async function renouvelerSession(): Promise<Session | null> {
     },
   });
 
+  if (!enregistrement) return null;
+
+  const maintenant = new Date();
+
+  // Révoqué : toléré seulement dans la fenêtre de grâce (cf. GRACE_MS).
+  if (enregistrement.revoqueeLe !== null) {
+    const depuis = maintenant.getTime() - enregistrement.revoqueeLe.getTime();
+    if (depuis > GRACE_MS) return null;
+  }
+
   if (
-    !enregistrement ||
-    enregistrement.revoqueeLe !== null ||
-    enregistrement.expireLe < new Date() ||
+    enregistrement.expireLe < maintenant ||
     !enregistrement.utilisateur.actif // le compte a été désactivé entre-temps
   ) {
     return null;
@@ -184,11 +157,16 @@ export async function renouvelerSession(): Promise<Session | null> {
   };
 
   // Rotation : l'ancien jeton est révoqué, un nouveau est émis.
+  //
+  // `updateMany` avec `revoqueeLe: null` en condition : si une requête
+  // concurrente a déjà révoqué la ligne, on ne réécrit pas sa date de
+  // révocation — ce qui aurait pour effet de repousser indéfiniment la fenêtre
+  // de grâce à chaque tentative, et de rendre un jeton volé utilisable sans fin.
   const nouveau = genererJeton();
   await prisma.$transaction([
-    prisma.sessionRenouvellement.update({
-      where: { jetonHash: enregistrement.jetonHash },
-      data: { revoqueeLe: new Date(), dernierUsageLe: new Date() },
+    prisma.sessionRenouvellement.updateMany({
+      where: { jetonHash: enregistrement.jetonHash, revoqueeLe: null },
+      data: { revoqueeLe: maintenant, dernierUsageLe: maintenant },
     }),
     prisma.sessionRenouvellement.create({
       data: {
@@ -201,12 +179,7 @@ export async function renouvelerSession(): Promise<Session | null> {
     }),
   ]);
 
-  const communs = {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax" as const,
-    path: "/",
-  };
+  const communs = optionsCookie();
   boite.set(COOKIE_ACCES, await signerAcces(session), {
     ...communs,
     maxAge: DUREE_ACCES_SECONDES,
@@ -215,7 +188,7 @@ export async function renouvelerSession(): Promise<Session | null> {
     ...communs,
     maxAge: Math.max(
       0,
-      Math.floor((enregistrement.expireLe.getTime() - Date.now()) / 1000)
+      Math.floor((enregistrement.expireLe.getTime() - maintenant.getTime()) / 1000)
     ),
   });
 
@@ -249,7 +222,7 @@ export async function revoquerToutesLesSessions(idUtilisateur: bigint): Promise<
   return count;
 }
 
-export const NOMS_COOKIES = {
-  acces: COOKIE_ACCES,
-  renouvellement: COOKIE_RENOUVELLEMENT,
-} as const;
+// Réexports : les appelants existants importent tout depuis `session.ts`, et
+// n'ont pas à savoir que la partie jeton a été déplacée.
+export { cleSignature, lireJetonAcces, signerAcces, optionsCookie, NOMS_COOKIES };
+export type { Role, Session };

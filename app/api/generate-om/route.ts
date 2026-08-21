@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateOmDocx } from "@/lib/generateOmDocx";
+import { lireSession } from "@/lib/auth/garde";
 import type { OrdreMissionDocument } from "@/types/om";
 
 // Obligatoire : docxtemplater/pizzip ont besoin de Node (fs, buffers), pas d'Edge.
@@ -26,6 +27,28 @@ export const runtime = "nodejs";
 // d'origine. Les deux exigences se rejoignent mal : lecture en base (serveur)
 // contre téléchargement hors ligne (client). À trancher à l'étape 10.
 export async function POST(request: NextRequest) {
+  // Garde d'authentification. Le proxy en pose déjà une en amont, mais elle ne
+  // suffit pas : la doc prévient que « A matcher change or a refactor that moves
+  // a Server Function to a different route can silently remove Proxy coverage.
+  // Always verify authentication and authorization inside each Server Function ».
+  // Un Route Handler est exactement dans ce cas.
+  //
+  // `lireSession()` et non `exigerSession()` : cette dernière REDIRIGE, ce qui
+  // renverrait du HTML à un client qui attend un `.docx`. Ici on répond 401.
+  //
+  // ⚠️ Ce contrôle vérifie seulement QUI appelle, pas CE QU'il demande : le
+  // contenu du document vient toujours du corps de la requête, donc un employé
+  // authentifié peut encore se fabriquer un OM au contenu de son choix. La
+  // correction est la même qu'annoncée ci-dessus — lire l'OM en base à partir
+  // de son identifiant — et relève de l'étape 8.
+  const session = await lireSession();
+  if (!session) {
+    return NextResponse.json(
+      { error: "Non authentifié." },
+      { status: 401, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   const om: OrdreMissionDocument = await request.json();
 
   let buffer: Buffer;

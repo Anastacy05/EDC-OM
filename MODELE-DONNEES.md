@@ -1617,11 +1617,16 @@ L'ordre n'est pas indifférent : chaque étape n'exige que ce que les précéden
    `type_conge`, `jour_ferie`, `configuration`.
 5. `lib/data/` avec `import "server-only"`, en commençant par les référentiels —
    lecture seule, aucun risque, et ça valide le motif d'accès.
-6. **Authentification et rôles. Avant toute écriture.** La validation d'un OM est
-   réservée à l'admin connecté : sans rôles, la règle centrale du §1 n'existe pas.
-   Aujourd'hui `/admin` est ouverte à tous.
-7. `employe` : CRUD admin, plus l'envoi du mail de définition du mot de passe
-   (`jeton_mot_de_passe` + `mail_en_attente`).
+6. **Authentification et rôles. Avant toute écriture.** — ✅ **fait le 21/08/2026.**
+   La validation d'un OM est réservée à l'admin connecté : sans rôles, la règle centrale
+   du §1 n'existe pas. Ce qui est en place : Argon2id natif (`lib/auth/motDePasse.ts`),
+   sessions à deux jetons avec rotation et fenêtre de grâce (`lib/auth/session.ts`),
+   gardes du DAL (`lib/auth/garde.ts`), `/connexion`, `/mot-de-passe/[jeton]`, filtrage
+   par `proxy.ts`, protection de `/admin`, et `prisma/creerCompte.ts` pour amorcer un
+   compte. Détail des choix au §14.
+7. `employe` : CRUD admin, plus l'**envoi** du mail de définition du mot de passe
+   (`mail_en_attente`). Le jeton et sa consommation existent déjà (étape 6) ; il ne
+   manque que l'expédition — aujourd'hui le lien est imprimé par le script.
 8. `ordre_mission` + `participation` : création, puis **validation avec détection de
    conflit** (§1) — c'est le cœur métier, et il dépend de tout ce qui précède.
 9. Bascule des pages admin en composants serveur. `lib/useEstMonte.ts` devient inutile.
@@ -1637,4 +1642,52 @@ L'ordre n'est pas indifférent : chaque étape n'exige que ce que les précéden
 
 **Table `frais` :** créée à l'étape 3 mais alimentée par aucun écran, et exploitée par
 aucun rapport (§2, §11). À rouvrir seulement si la saisie devient une exigence.
+
+---
+
+## 14. Authentification — décisions et limites (21/08/2026)
+
+### 14.1 Les trois choix structurants
+
+| Choix | Retenu | Écarté, et pourquoi |
+|---|---|---|
+| Hachage | **Argon2id natif de Node 24** (19 MiB, 2 passes) | `bcrypt` : module natif à compiler. `bcryptjs` : tronque **silencieusement à 72 octets** — vérifié, un mot de passe de 203 caractères passe entièrement avec Argon2. |
+| Session | **JWT 15 min + jeton opaque 30 j haché en base** | Un seul JWT long : irrévocable, un employé parti continuerait à valider des OM. Vérification en base à chaque requête : interdit le hors ligne (§1). |
+| Mot de passe initial | **Lien à usage unique, 48 h** | Mot de passe provisoire transmis de vive voix : connu de l'admin, donc jamais vraiment secret. |
+
+### 14.2 Ce qui a été mesuré, pas supposé
+
+Vérifié sur la base réelle, serveur de production :
+
+- jeton forgé avec `alg: none`, jeton expiré, jeton signé d'une autre clé → tous refusés ;
+- **rôle modifié dans le JWT** (`UTILISATEUR` → `ADMINISTRATEUR`) → signature invalide, redirection vers la connexion ;
+- `/admin` et `/admin/carte` avec une session UTILISATEUR → `307 → /?acces=refuse` ;
+- lien de mot de passe rejoué → invalide ; saisie trop courte ou confirmation différente → refusée **sans consommer le jeton** ;
+- fenêtre de grâce : révoqué depuis 10 s et 59 s → accepté ; 120 s et 1 h → refusé ;
+- rotation : le successeur **hérite de l'échéance du parent** (écart mesuré 0,0 s), donc pas de session éternelle ;
+- compte désactivé → renouvellement refusé ;
+- écart de temps de réponse entre compte connu et inconnu : **4 ms de médiane** (leurre Argon2), contre ~130 ms sans lui — l'énumération des comptes par chronométrage est fermée ;
+- verrou anti-force-brute : déclenché au 6ᵉ essai.
+
+### 14.3 Limites connues, à traiter plus tard
+
+1. **Le verrou anti-force-brute est en mémoire du processus.** Perdu au redémarrage, non partagé entre instances. Suffisant pour un déploiement mono-serveur ; à remplacer par une table ou un Redis si l'architecture change. Un seul module à toucher : `lib/auth/limitation.ts`.
+2. **La fenêtre de grâce de 60 s** rend un jeton volé rejouable pendant une minute après un usage légitime. C'est le compromis des recommandations OAuth sur la rotation (RFC 9700) ; sans elle, les préchargements de Next déconnectent l'utilisateur au hasard.
+3. **`x-forwarded-for` est falsifiable** si l'application n'est pas derrière un proxy qui le réécrit. La limitation par IP est donc un ralentisseur ; celle par compte reste efficace.
+4. **Le cache du Service Worker ne sera pas protégé par le mot de passe** (étape 11) : sur un poste volé, les pages déjà en cache restent lisibles. Inhérent au choix hors ligne. **À trancher : purger le cache à la déconnexion ?**
+5. **Toutes les routes sont désormais rendues à la demande** (`ƒ`), parce que le Header lit la session dans le layout racine. C'est le prix d'un état de connexion visible partout ; `<Suspense>` limite le coût au seul fragment concerné, mais n'annule pas la bascule. Réversible avec `cacheComponents`.
+6. **`/api/generate-om` n'est protégée qu'en authentification, pas en autorisation** : le contenu du document vient toujours du corps de la requête, donc un employé connecté peut se fabriquer un OM arbitraire. Correction prévue à l'étape 8 (lire l'OM en base par son identifiant).
+
+### 14.4 Où vit la sécurité
+
+Trois couches, dont **une seule fait autorité** :
+
+| Couche | Fichier | Rôle |
+|---|---|---|
+| Proxy | `proxy.ts` | Tri optimiste sur le cookie. Aucun accès base. **Ne protège rien** — la doc prévient qu'un changement de `matcher` peut retirer sa couverture en silence. |
+| Layout | `app/admin/layout.tsx` | Refuse l'entrée dans la section. Ne se réexécute **pas** à la navigation interne (rendu partiel). |
+| **DAL** | `lib/auth/garde.ts` | **La seule qui compte.** Appelée par chaque lecture et chaque Server Action, mémoïsée par `cache()` pour la durée d'une requête. |
+
+Le renouvellement, lui, est concentré dans `app/api/auth/renouveler/route.ts` : c'est le seul contexte qui peut à la fois lire la base et écrire des cookies sur une simple navigation. Vérifié le 21/08/2026 : Prisma **fonctionne** dans le proxy (runtime Node depuis Next 16, `server-only` ne s'y oppose pas) — le choix de ne pas l'y mettre est délibéré, pas contraint.
+
 
