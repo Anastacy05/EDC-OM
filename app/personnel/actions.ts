@@ -17,8 +17,14 @@ import {
   normaliserMatricule,
   type ErreursChamps,
 } from "@/lib/data/employes.validation";
-import { creerCompte, creerJetonMotDePasse } from "@/lib/data/utilisateurs";
+import {
+  creerCompte,
+  creerJetonMotDePasse,
+  VALIDITE_JETON_HEURES,
+} from "@/lib/data/utilisateurs";
 import { prisma } from "@/lib/data/client";
+import { envoyerCourrielMaintenant } from "@/lib/data/mails";
+import { courrielInvitation } from "@/lib/mail/modeles";
 
 /**
  * Server Actions du personnel.
@@ -53,9 +59,10 @@ export interface EtatFormulaireEmploye {
   /**
    * Lien d'invitation à transmettre, affiché une seule fois.
    *
-   * ⚠️ Il traverse le réseau vers le navigateur de l'administrateur, ce qui est
-   * inévitable puisqu'il doit être copié. C'est aussi ce qui le rend provisoire :
-   * l'envoi par courriel supprimera ce passage.
+   * ⚠️ Présent UNIQUEMENT si le courriel n'a pas pu partir : c'est le repli, pas
+   * le fonctionnement normal. Quand l'envoi réussit, le lien n'est pas renvoyé
+   * au navigateur — l'afficher le ferait exister dans un second endroit (page,
+   * historique, éventuelle capture d'écran) sans aucun bénéfice.
    */
   lienInvitation?: string;
 }
@@ -201,12 +208,18 @@ export async function actionReactiverEmploye(formData: FormData): Promise<void> 
 /**
  * Crée le compte de l'employé, ou réémet son lien s'il existe déjà.
  *
- * ⚠️ ÉTAT PROVISOIRE : le lien est RENVOYÉ À L'ÉCRAN pour que l'administrateur
- * le transmette lui-même. L'envoi automatique par courriel attend le choix du
- * fournisseur (serveur SMTP de l'EDC, Resend ou Brevo — cf. MODELE-DONNEES.md
- * §12). Ce n'est pas moins sûr que le courriel, qui circule aussi en clair, mais
- * ça repose sur la discipline de l'admin, alors que la file `mail_en_attente`
- * l'automatisera.
+ * ── Le courriel est envoyé, et attendu ───────────────────────────────────────
+ *
+ * L'envoi est mis en file puis tenté **immédiatement**, et l'action ATTEND le
+ * résultat au lieu de le confier à `after()`. C'est délibéré : l'administrateur
+ * doit savoir s'il peut compter sur le courriel ou s'il doit transmettre le lien
+ * lui-même. Un envoi en arrière-plan lui afficherait « c'est parti » sans le
+ * savoir. Le coût est d'environ une seconde d'attente — le prix d'une réponse
+ * vraie.
+ *
+ * En cas d'échec (ou sans SMTP configuré), le lien est renvoyé à l'écran : le
+ * message reste en file et repartira au prochain balayage, mais l'administrateur
+ * n'est jamais bloqué.
  *
  * Le rôle est toujours UTILISATEUR : promouvoir quelqu'un administrateur depuis
  * un écran de gestion du personnel serait une élévation de privilège trop facile.
@@ -243,6 +256,7 @@ export async function actionEmettreInvitation(
     }
 
     let jeton: string;
+    const reinitialisation = employe.utilisateur !== null;
     if (employe.utilisateur) {
       // Compte existant : on réémet, ce qui invalide les liens précédents. C'est
       // le parcours « mot de passe oublié » en attendant un écran dédié.
@@ -257,11 +271,53 @@ export async function actionEmettreInvitation(
     const base = process.env.APP_URL ?? "http://localhost:3000";
     const lien = `${base}/mot-de-passe/${encodeURIComponent(jeton)}`;
 
+    // L'adresse du compte l'emporte sur celle du formulaire en réémission : le
+    // champ est caché, mais s'y fier permettrait de détourner un lien vers une
+    // adresse choisie par l'appelant.
+    const destinataire = employe.utilisateur?.email ?? email;
+
+    const envoi = await envoyerCourrielMaintenant(
+      destinataire,
+      courrielInvitation({
+        lien,
+        validiteHeures: VALIDITE_JETON_HEURES,
+        reinitialisation,
+      })
+    );
+
     refresh();
+
+    if (envoi.genre === "envoye") {
+      return {
+        succes: reinitialisation
+          ? `Nouveau lien envoyé à ${destinataire}. Les liens précédents ne sont plus valables.`
+          : `Compte créé. Le lien de mot de passe a été envoyé à ${destinataire}.`,
+      };
+    }
+
+    // Repli : le courriel n'est pas parti. Il reste en file et repartira au
+    // prochain balayage, mais on donne le lien tout de suite plutôt que de
+    // laisser l'employé attendre un message qui viendra peut-être.
+    const cause =
+      envoi.genre === "differe"
+        ? "Aucun serveur d'envoi n'est configuré."
+        : envoi.genre === "mauvaiseConfiguration"
+          ? // Distinct des autres échecs, et c'est le point : la cause est chez
+            // nous, pas chez le destinataire. Sans cette distinction, l'admin
+            // vérifierait l'adresse de l'employé au lieu du `.env`.
+            "Le serveur d'envoi refuse notre configuration (identifiants ou " +
+            "chiffrement). L'adresse de l'employé n'est pas en cause — signalez-le " +
+            "à l'administrateur technique."
+          : envoi.genre === "abandonne"
+            ? "L'envoi du courriel a définitivement échoué : l'adresse est peut-être inexacte."
+            : "L'envoi du courriel a échoué ; une nouvelle tentative aura lieu.";
+
     return {
-      succes: employe.utilisateur
-        ? `Nouveau lien émis. Les liens précédents ne sont plus valables.`
-        : `Compte créé pour ${email}.`,
+      succes: `${
+        reinitialisation
+          ? "Nouveau lien émis. Les liens précédents ne sont plus valables."
+          : `Compte créé pour ${destinataire}.`
+      } ${cause}`,
       lienInvitation: lien,
     };
   } catch (erreur) {

@@ -2,6 +2,21 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /**
+   * `nodemailer` chargé par le `require` de Node, sans passer par l'empaqueteur.
+   *
+   * Il résout ses transports et sa table de services connus par des `require`
+   * dynamiques, calculés à l'exécution. Un empaqueteur ne peut pas les suivre :
+   * il laisse le chemin tel quel, et le module manque au moment de l'appel.
+   *
+   * La liste automatique de Next contient déjà les paquets connus pour ce défaut
+   * (`pg`, `prisma`, `argon2`…) mais pas `nodemailer` ; on l'y ajoute donc à la
+   * main. La documentation décrit exactement ce cas : « If a dependency is using
+   * Node.js specific features, you can choose to opt-out specific dependencies
+   * from the Server Components bundling and use native Node.js require. »
+   */
+  serverExternalPackages: ["nodemailer"],
+
+  /**
    * Anciennes adresses de la section d'administration.
    *
    * Le 21/08/2026, `/admin` a été éclatée en deux onglets de nature

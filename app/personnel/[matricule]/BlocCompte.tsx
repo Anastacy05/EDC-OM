@@ -15,17 +15,17 @@ import {
 /**
  * Bloc « compte d'accès » de la fiche employé.
  *
- * ── État PROVISOIRE, et il faut le dire à l'écran ────────────────────────────
+ * ── Le courriel part, l'affichage du lien est un REPLI ───────────────────────
  *
- * Le lien de définition du mot de passe est **affiché** pour que
- * l'administrateur le transmette lui-même. L'envoi automatique attend le choix
- * du fournisseur (serveur SMTP de l'EDC, Resend ou Brevo — MODELE-DONNEES.md
- * §12).
+ * Le cas normal (21/08/2026) : l'action envoie le lien par courriel et l'écran
+ * confirme simplement l'adresse servie. Le lien lui-même n'est pas renvoyé au
+ * navigateur — l'afficher le ferait exister dans un second endroit sans aucun
+ * bénéfice.
  *
- * Ce n'est pas moins sûr que le courriel, qui circule aussi en clair sur le
- * réseau. Mais ça repose sur la discipline de l'administrateur, là où la file
- * `mail_en_attente` l'automatisera. L'avertissement à l'écran n'est donc pas
- * décoratif : il énonce une responsabilité qui lui incombe aujourd'hui.
+ * Il n'apparaît que lorsque l'envoi a échoué, ou qu'aucun serveur SMTP n'est
+ * configuré. C'est alors à l'administrateur de le transmettre, et l'encart le
+ * dit — l'avertissement n'est pas décoratif : il énonce une responsabilité qui
+ * lui revient dans ce cas précis.
  */
 export default function BlocCompte({
   fiche,
@@ -130,11 +130,20 @@ export default function BlocCompte({
             <Mail size={TAILLE_ICONE} aria-hidden="true" />
           )}
           {enCours
-            ? "Émission…"
+            ? "Envoi en cours…"
             : fiche.compte
-              ? "Émettre un nouveau lien de mot de passe"
-              : "Créer le compte et émettre le lien"}
+              ? "Envoyer un nouveau lien de mot de passe"
+              : "Créer le compte et envoyer le lien"}
         </button>
+
+        {/* L'attente est réelle — le dialogue SMTP prend une seconde ou deux —
+            et l'action l'assume pour pouvoir dire la vérité sur l'envoi. Le
+            signaler évite que l'administrateur reclique. */}
+        {enCours && (
+          <p role="status" className="text-xs text-blue-900/70">
+            Le courriel est en cours de remise au serveur d&apos;envoi.
+          </p>
+        )}
 
         {fiche.compte && (
           <p className="text-xs text-amber-800">
@@ -170,7 +179,7 @@ export default function BlocCompte({
 }
 
 /**
- * Affiche le lien à transmettre.
+ * Affiche le lien à transmettre, quand le courriel n'a pas pu partir.
  *
  * `readOnly` plutôt que `disabled` : un champ désactivé n'est pas sélectionnable,
  * donc le texte ne serait pas copiable à la main — or c'est précisément ce qu'on
@@ -215,8 +224,8 @@ function LienAafficher({
       </div>
 
       <p className="text-xs text-amber-800">
-        L&apos;envoi automatique par courriel viendra quand le fournisseur d&apos;envoi
-        sera choisi (MODELE-DONNEES.md §12).
+        Le message reste en file d&apos;attente : s&apos;il finit par partir, le titulaire
+        recevra ce même lien. Le transmettre vous-même ne crée donc pas de doublon.
       </p>
     </div>
   );

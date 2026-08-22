@@ -1,6 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import {
   hacherMotDePasse,
@@ -18,6 +19,7 @@ import {
 } from "@/lib/data/utilisateurs";
 import { attenteRestante, enregistrerEchec, enregistrerSucces } from "@/lib/auth/limitation";
 import { cheminDeRetourSur } from "@/lib/auth/redirection";
+import { balayerFile } from "@/lib/data/mails";
 
 /**
  * Server Actions d'authentification.
@@ -184,6 +186,19 @@ export async function connecter(
       // Silencieux volontairement : l'ancienne empreinte reste valable.
     }
   }
+
+  // Balayage de la file des courriels, tel que le schéma le prévoit : « Un mail
+  // déclenché hors ligne part À LA RECONNEXION, émis par le SERVEUR. » Une
+  // connexion est le meilleur moment pour ça — il y a forcément un réseau, et
+  // c'est fréquent sans être à chaque requête.
+  //
+  // `after()` et non `await` : le dialogue SMTP prend des secondes, et personne
+  // ne doit attendre devant un écran de connexion l'émission de courriels qui ne
+  // le concernent pas. La doc garantit l'exécution « even if the response didn't
+  // complete successfully. Including when an error is thrown or when notFound or
+  // redirect is called » — ce qui compte ici, puisque `redirect` suit
+  // immédiatement. `balayerFile` avale ses propres erreurs pour cette raison.
+  after(balayerFile);
 
   // `redirect` lève une exception (`NEXT_REDIRECT`) : elle doit être appelée
   // HORS de tout try/catch, sinon le catch l'avale et la redirection n'a pas

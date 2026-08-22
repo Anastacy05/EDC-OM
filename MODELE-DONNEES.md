@@ -1225,7 +1225,7 @@ demande, elle, se crée hors ligne et part à la reconnexion, avec son ULID d'id
 |---|---|
 | Police de caractères | **Décidé et appliqué** : Inter via `next/font` (auto-hébergée, 7 fichiers `.woff2` servis en propre, aucune requête Google) |
 | Signature électronique | **Décidé** : validation tracée (qui, quand, IP) + verrouillage. Pas de cryptographie — cf. §12 |
-| Notifications | **Décidé** : table `notification` en base + `mail_en_attente` envoyé à la reconnexion — cf. §12 |
+| Notifications | **Décidé** : table `notification` en base + `mail_en_attente` envoyé à la reconnexion — cf. §12. Fournisseur **tranché le 22/08/2026** : SMTP (Brevo en attendant le Zimbra de l'EDC) — cf. §16 |
 | Rapports | **Spécifiés** au §11 |
 | Suppression d'un OM | **Décidé** : aucune. `REFUSE` (admin, motivé) et `EXPIRE` (automatique) — cf. §7 |
 | Quels statuts sont « cadres » | **Décidé** : Cadre et au-dessus, soit 8 statuts sur 10 (§9) |
@@ -1594,8 +1594,8 @@ Deux points structurants, reflétés dans le DDL :
    partiel sur `lu_le IS NULL`.
 2. **Un mail déclenché hors ligne part à la reconnexion, envoyé par le serveur** — jamais
    par le navigateur. D'où `mail_en_attente` : le mail devient un effet de bord de la
-   synchronisation, avec compteur de tentatives et dernière erreur. Il faut un fournisseur
-   SMTP (Resend, Brevo, ou le serveur de messagerie EDC). **À TRANCHER.**
+   synchronisation, avec compteur de tentatives et dernière erreur. **TRANCHÉ le
+   22/08/2026 — voir §16.**
 
 En repli, si l'EDC n'expose aucun SMTP : l'admin génère un code temporaire remis de la
 main à la main, et les notifications restent purement en-app.
@@ -1624,13 +1624,12 @@ L'ordre n'est pas indifférent : chaque étape n'exige que ce que les précéden
    gardes du DAL (`lib/auth/garde.ts`), `/connexion`, `/mot-de-passe/[jeton]`, filtrage
    par `proxy.ts`, protection de `/admin`, et `prisma/creerCompte.ts` pour amorcer un
    compte. Détail des choix au §14.
-7. `employe` : CRUD admin — ✅ **fait le 21/08/2026**, sauf l'envoi du courriel.
-   En place : `lib/data/employes.ts` (gardes dans chaque fonction, DTO en sortie),
-   `lib/data/employes.validation.ts`, `/personnel` avec recherche et filtres portés par
-   l'URL, `/personnel/nouveau`, `/personnel/[matricule]` avec bloc compte et
-   activation/désactivation. **Reste : l'expédition** — le jeton et sa consommation
-   existent, le lien est aujourd'hui affiché à l'écran pour transmission manuelle, en
-   attente du choix du fournisseur (§12). Détail au §15.
+7. `employe` : CRUD admin — ✅ **fait le 21/08/2026**, envoi du courriel ajouté le
+   22/08/2026. En place : `lib/data/employes.ts` (gardes dans chaque fonction, DTO en
+   sortie), `lib/data/employes.validation.ts`, `/personnel` avec recherche et filtres
+   portés par l'URL, `/personnel/nouveau`, `/personnel/[matricule]` avec bloc compte et
+   activation/désactivation. Le lien de mot de passe **part maintenant par courriel**
+   (§16) ; il n'est affiché à l'écran qu'en repli, si l'envoi échoue. Détail au §15.
 8. `ordre_mission` + `participation` : création, puis **validation avec détection de
    conflit** (§1) — c'est le cœur métier, et il dépend de tout ce qui précède.
 9. Bascule des pages admin en composants serveur. `lib/useEstMonte.ts` devient inutile.
@@ -1730,8 +1729,92 @@ Toutes vérifiées contre le serveur réel : matricule vide, nom vide, statut in
 
 ### 15.4 Limites connues
 
-1. **L'envoi par courriel n'existe pas.** Le lien d'invitation est **affiché à l'écran** pour transmission manuelle. Ce n'est pas moins sûr que le courriel — qui circule aussi en clair — mais ça repose sur la discipline de l'administrateur. **À trancher : le fournisseur** (serveur SMTP de l'EDC, Resend, Brevo).
-2. **La recherche n'est pas insensible aux accents.** « rene » ne trouve pas « RENÉ ». L'extension `unaccent` est installée mais Prisma ne l'expose pas ; il faudrait un index `unaccent(nom)` et une requête `$queryRaw`. À traiter si les RH le signalent.
-3. **Pas de pagination.** Toute la liste filtrée est chargée. Sans objet à quelques centaines d'employés, à revoir au-delà.
-4. **Pas de journal des modifications.** Qui a changé quoi, quand, n'est pas tracé. La session est connue, donc c'est faisable — mais aucune table ne l'accueille aujourd'hui.
+1. ~~**L'envoi par courriel n'existe pas.**~~ **Levée le 22/08/2026** — le lien part par SMTP, cf. §16. Il n'est affiché à l'écran qu'en repli, si l'envoi échoue ou si aucun serveur n'est configuré.
+2. **La recherche n'est pas insensible aux accents.** « rene » ne trouve pas « RENÉ ». La fonction immuable `sans_accent()` et ses index existent depuis la migration du 21/08/2026, mais Prisma ne les exploite pas encore ; il faut une requête `$queryRaw`. À faire.
+3. **Pas de pagination.** Toute la liste filtrée est chargée. À corriger : plus de 400 employés attendus.
+4. **Pas de journal des modifications.** Qui a changé quoi, quand, n'est pas tracé. La session est connue, donc c'est faisable — mais aucune table ne l'accueille aujourd'hui. Explicitement reporté par l'utilisatrice.
 5. **`lib/employees.ts` (données de démonstration) est toujours là**, et les écrans d'OM lisent encore `localStorage`. Les deux sources coexistent jusqu'à l'étape 8. À commenter à l'étape 14.
+
+---
+
+## 16. Envoi de courriels — décisions et limites (22/08/2026)
+
+### 16.1 SMTP, et non l'API HTTP d'un fournisseur
+
+**L'information décisive : l'EDC dispose d'un service de messagerie Zimbra**, qui parle SMTP. Brevo — retenu provisoirement, le temps de savoir si ce Zimbra est joignable depuis l'application — expose lui aussi un relais SMTP (`smtp-relay.brevo.com:587`) en plus de son API `api.brevo.com`.
+
+Passer par SMTP fait de la bascule Brevo → Zimbra **un changement de variables d'environnement, sans une ligne de code**. Une intégration à `api.brevo.com` nous y aurait enfermés : chaque fournisseur a son schéma JSON, son authentification et ses codes d'erreur, là où SMTP est le même protocole partout.
+
+C'est la réponse directe à l'exigence posée : *« j'aimerais que le code soit fait de manière si scalable que la migration vers le serveur de l'entreprise soit souple ».*
+
+| Variable | Rôle |
+|---|---|
+| `SMTP_HOTE` | Vide = envoi **désactivé**, et c'est un état normal, pas une panne |
+| `SMTP_PORT` | 587 (STARTTLS), 465 (TLS immédiat) ou 2525 |
+| `SMTP_UTILISATEUR` / `SMTP_MOT_DE_PASSE` | Les deux ensemble, ou aucun (relais ouvert sur IP de confiance) |
+| `SMTP_CERTIFICAT_AUTOSIGNE` | Dernier recours pour un Zimbra à certificat interne |
+| `MAIL_EXPEDITEUR` / `MAIL_NOM_EXPEDITEUR` | Expéditeur affiché |
+
+Deux choix qui suppriment des erreurs de configuration plutôt que de les documenter :
+
+- **Le chiffrement est déduit du port** (465 → TLS immédiat, sinon STARTTLS), au lieu d'être une variable de plus. `secure: true` sur le port 587 est l'erreur la plus courante de nodemailer : la connexion expire sans message clair.
+- **STARTTLS est exigé** sur les ports en clair. Sans ce drapeau, nodemailer tente STARTTLS puis, si le serveur ne l'annonce pas, **envoie en clair sans rien dire** — un lien valant mot de passe traverserait le réseau lisible.
+
+Diagnostic sans rien émettre : `npx tsx prisma/verifierMail.ts`.
+
+### 16.2 Trois catégories d'échec, pas deux — un défaut trouvé en éprouvant la couche
+
+Le classement initial était binaire : 5xx définitif, le reste temporaire. `EAUTH` (identifiants refusés) portant `responseCode: 535`, donc un 5xx, il tombait dans « définitif ».
+
+**Conséquence, avec un mot de passe SMTP erroné : le premier balayage marquait toute la file définitivement abandonnée.** Le `.env` corrigé, aucun de ces messages ne repartait — les invitations étaient perdues, et rien ne le signalait.
+
+L'erreur est une **erreur d'attribution** : un refus d'authentification ne dit rien du destinataire, il dit que *nos* identifiants sont faux. D'où une troisième catégorie, qui laisse le message **intact** et **rend la tentative consommée** :
+
+| Cause | Catégorie | Effet sur le message |
+|---|---|---|
+| 5xx (boîte inexistante) | définitif | `tentatives` porté au maximum, plus jamais retenté |
+| 4xx (serveur saturé) | temporaire | une tentative consommée, repartira |
+| `ECONNREFUSED` (`ESOCKET` **avec** `syscall`) | temporaire | idem — le serveur redémarre peut-être |
+| `EAUTH` (identifiants faux) | **configuration** | **intact**, tentative rendue, balayage interrompu |
+| TLS impossible (`ESOCKET` **sans** `syscall`) | **configuration** | idem |
+
+`ESOCKET` recouvre deux causes opposées, mesurées sur les erreurs réelles de nodemailer 9 : sa présence avec `syscall` signale un échec réseau (temporaire), son absence un échec du protocole TLS (notre `.env`). Se contenter du `code` rangerait un serveur momentanément arrêté parmi les fautes de configuration, et bloquerait la file sans raison.
+
+Vérifié de bout en bout : file de 3 messages constituée avec de mauvais identifiants → balayage interrompu, `tentatives = 0` partout ; `.env` corrigé → les 3 messages partent.
+
+### 16.3 La tentative est comptée AVANT l'essai
+
+L'incrément de `tentatives` sert de **verrou optimiste** (la condition `tentatives: <valeur lue>` fait échouer la réservation si un autre processus est passé) et de **garde-fou** (un plantage pendant le dialogue SMTP laisse la tentative inscrite, donc pas de boucle infinie).
+
+Préféré à `SELECT … FOR UPDATE SKIP LOCKED`, qui tiendrait une transaction ouverte pendant tout le dialogue SMTP — plusieurs secondes. Prix assumé : un plantage consomme une tentative pour rien. Sur cinq, acceptable ; l'inverse serait un message réémis sans fin.
+
+Vérifié : deux envois simultanés du même message → **un seul** part, l'autre s'abstient, une seule tentative comptée.
+
+### 16.4 Rien n'est supprimé, y compris les échecs
+
+`tentatives >= 5` **est** le marqueur d'abandon — un prédicat de requête, pas une colonne de plus, donc aucune migration. La ligne reste en base avec `derniere_erreur`, conformément à la règle du projet sur la conservation du code et des données.
+
+### 16.5 Texte brut, pas de HTML
+
+Trois raisons, par ordre d'importance :
+
+1. **Le lien est visible.** Un courriel HTML masque l'adresse derrière un libellé — la forme exacte d'un hameçonnage. En texte brut, le destinataire *lit* l'adresse avant de cliquer. Pour un message qui vaut un mot de passe, ça compte plus que la mise en forme.
+2. La table n'a qu'une colonne `corps` : stocker les deux formes demanderait une migration, et une file qui garde le HTML devient un gabarit figé.
+3. Rien à casser : ni image bloquée, ni rendu différent d'un client à l'autre.
+
+### 16.6 L'invitation est attendue, le reste part en arrière-plan
+
+L'action d'invitation **attend** le résultat de l'envoi (environ une seconde) au lieu de le confier à `after()`. C'est délibéré : l'administrateur doit savoir s'il peut compter sur le courriel ou s'il doit transmettre le lien lui-même. En cas d'échec, le lien réapparaît à l'écran avec la cause — et un message distinct quand la faute est la nôtre, pour qu'il ne cherche pas du côté de l'adresse de l'employé.
+
+Le balayage de la file, lui, passe par `after()` à la connexion — ce que le schéma prévoyait : *« Un mail déclenché hors ligne part À LA RECONNEXION, émis par le SERVEUR. »* La documentation garantit l'exécution même lorsque `redirect` est appelé ensuite.
+
+Vérifié sur le serveur de production réel, avec un serveur SMTP local : courriel reçu, accents corrects, lien utilisable, et **le lien n'est pas renvoyé au navigateur quand l'envoi réussit**.
+
+### 16.7 Limites connues
+
+1. **`nodemailer` est dans `serverExternalPackages`.** Il résout ses transports par des `require` dynamiques qu'un empaqueteur ne peut pas suivre. Précaution vérifiée par un build complet.
+2. **Le verrou anti-balayages-simultanés est par processus**, comme le limiteur de connexions. Avec plusieurs instances, c'est le verrou optimiste sur `tentatives` qui empêche un doublon — le drapeau n'est qu'une économie de connexions.
+3. **Aucune tâche planifiée.** La file n'est balayée qu'à une connexion. Un message en échec temporaire attend donc la prochaine — potentiellement longtemps sur une application peu fréquentée. À revoir avec la PWA (étape 11), qui apportera de toute façon une synchronisation.
+4. **Envoi séquentiel, 20 messages par balayage.** Le relais Brevo « does not support batch sending », et un Zimbra d'entreprise limite les connexions simultanées par IP. La lenteur régule le débit. Une invitation en masse (400 employés) demanderait 20 balayages.
+5. **`prisma/creerCompte.ts` n'envoie pas de courriel** : il imprime le lien. C'est l'outil d'amorçage, lancé par quelqu'un ayant un accès serveur, souvent avant que le SMTP soit configuré.
+6. **Les identifiants Brevo ne sont pas encore renseignés.** Toute la chaîne a été éprouvée contre un serveur SMTP local (STARTTLS, authentification, refus 4xx/5xx, TLS incompatible) ; **il reste à valider contre le vrai relais**, où le domaine d'expéditeur doit être vérifié dans leur tableau de bord sous peine de refus permanent.

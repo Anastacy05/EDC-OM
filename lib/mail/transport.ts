@@ -205,27 +205,72 @@ export async function remettreAuServeur(message: MessageAEnvoyer): Promise<void>
 }
 
 /**
- * Vrai si l'erreur ne se résoudra pas d'elle-même : réessayer serait inutile.
+ * Vrai si l'erreur vient de NOTRE configuration, et non du destinataire.
+ *
+ * ── Pourquoi cette troisième catégorie existe ────────────────────────────────
+ *
+ * Défaut trouvé en éprouvant la couche (22/08/2026) : `EAUTH` était rangé parmi
+ * les échecs définitifs. Conséquence, avec un mot de passe SMTP erroné : le
+ * premier balayage marquait **toute la file** définitivement abandonnée. Une
+ * fois le `.env` corrigé, aucun de ces messages ne repartait — les invitations
+ * étaient perdues, et rien à l'écran ne le disait.
+ *
+ * L'erreur d'attribution est là : un refus d'authentification ne dit rien du
+ * destinataire, il dit que nos identifiants sont faux. Le message est donc
+ * intact et doit rester exactement dans l'état où il était.
+ *
+ * ── `ESOCKET` recouvre DEUX causes opposées ──────────────────────────────────
+ *
+ * Mesuré sur les erreurs réelles de nodemailer 9 (22/08/2026) :
+ *
+ *   • hôte injoignable → `{ code: "ESOCKET", syscall: "connect", errno: -4078,
+ *     message: "connect ECONNREFUSED …" }`
+ *   • port en clair traité comme TLS → `{ code: "ESOCKET", command: "CONN",
+ *     message: "…SSL routines:…wrong version number…" }` — **sans `syscall`**
+ *
+ * Le premier est temporaire (le serveur redémarre peut-être), le second vient de
+ * notre `.env` et ne guérira pas seul. `syscall` les sépare : sa présence
+ * signale un échec de la couche réseau, son absence un échec du protocole TLS.
+ * Se contenter du `code` rangerait un serveur momentanément arrêté parmi les
+ * fautes de configuration, et bloquerait la file sans raison.
+ */
+export function estEchecDeConfiguration(erreur: unknown): boolean {
+  if (typeof erreur !== "object" || erreur === null) return false;
+
+  const code = (erreur as { code?: unknown }).code;
+  if (code === "EAUTH") return true;
+
+  if (code === "ESOCKET") {
+    // `syscall` présent = la connexion elle-même a échoué : temporaire.
+    return (erreur as { syscall?: unknown }).syscall === undefined;
+  }
+
+  return false;
+}
+
+/**
+ * Vrai si l'erreur ne se résoudra pas d'elle-même POUR CE DESTINATAIRE :
+ * réessayer serait inutile.
  *
  * La frontière suit les codes SMTP (RFC 5321 §4.2.1) :
  *   • **5xx** = échec permanent — boîte inexistante, domaine inconnu, message
  *     refusé. Réessayer donnera exactement la même réponse.
  *   • **4xx** = échec temporaire — serveur saturé, quota momentané.
  *   • pas de code du tout = la connexion n'a pas abouti (`ECONNREFUSED`,
- *     `ETIMEDOUT`, DNS) : temporaire par nature, le serveur peut être en cours
- *     de redémarrage.
+ *     `ETIMEDOUT`, DNS) : temporaire par nature.
  *
- * `EAUTH` est traité à part : ce sont des identifiants faux, donc permanent pour
- * ce message — mais ça vaut pour TOUS les messages, et le journal doit le dire
- * clairement, sinon on cherche du côté du destinataire un problème de `.env`.
+ * ⚠️ Les fautes de configuration sont écartées EN PREMIER, et non laissées à
+ * l'ordre d'appel : un refus d'authentification porte `responseCode: 535`, donc
+ * un 5xx. Sans cette exclusion explicite, la fonction le classerait « définitif »
+ * — exactement le défaut que `estEchecDeConfiguration` corrige. Les deux
+ * prédicats sont ainsi mutuellement exclusifs par construction.
  */
 export function estEchecDefinitif(erreur: unknown): boolean {
   if (typeof erreur !== "object" || erreur === null) return false;
+  if (estEchecDeConfiguration(erreur)) return false;
 
   const code = (erreur as { responseCode?: unknown }).responseCode;
-  if (typeof code === "number") return code >= 500 && code < 600;
-
-  return (erreur as { code?: unknown }).code === "EAUTH";
+  return typeof code === "number" && code >= 500 && code < 600;
 }
 
 /**
