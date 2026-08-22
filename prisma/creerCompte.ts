@@ -8,6 +8,20 @@ import { createHash, randomBytes } from "node:crypto";
  *
  *   npx tsx prisma/creerCompte.ts admin@edc.cm ADMINISTRATEUR
  *   npx tsx prisma/creerCompte.ts jean@edc.cm UTILISATEUR 22P582
+ *   npx tsx prisma/creerCompte.ts chef@edc.cm ADMINISTRATEUR --fondateur
+ *
+ * ── `--fondateur` : la capacité qui gouverne toutes les autres ───────────────
+ *
+ * Le fondateur est le SEUL compte autorisé à créer et à révoquer des
+ * administrateurs depuis l'écran. Ce drapeau ne se pose que par ce script, donc
+ * depuis un accès au serveur : aucun écran ne peut se l'attribuer, ce qui
+ * empêche qu'un compte administrateur compromis se donne le droit d'en fabriquer
+ * d'autres.
+ *
+ * Il est aussi TRANSFÉRABLE : relancer avec `--fondateur` sur un autre compte
+ * déplace la capacité. C'est l'issue de secours si le titulaire quitte l'EDC ou
+ * perd son accès — et la raison pour laquelle la capacité est une colonne plutôt
+ * que « le compte au plus petit identifiant » (cf. le commentaire du schéma).
  *
  * ── Pourquoi le mot de passe n'est PAS un argument ───────────────────────────
  *
@@ -31,12 +45,22 @@ const DUREE_JETON_HEURES = 48; // doit rester aligné sur lib/data/utilisateurs.
 
 function usage(message: string): never {
   console.error(`\n  ✖ ${message}\n`);
-  console.error("  Usage : npx tsx prisma/creerCompte.ts <email> <ADMINISTRATEUR|UTILISATEUR> [matricule]\n");
+  console.error("  Usage : npx tsx prisma/creerCompte.ts <email> <ADMINISTRATEUR|UTILISATEUR> [matricule] [--fondateur]\n");
+  console.error("  --fondateur : donne à ce compte le SEUL droit de créer et de révoquer");
+  console.error("                des administrateurs depuis l'écran. Un seul compte peut le");
+  console.error("                porter ; le poser sur un autre transfère la capacité.\n");
   process.exit(1);
 }
 
 async function principal() {
-  const [emailBrut, roleBrut, matriculeBrut] = process.argv.slice(2);
+  const arguments_ = process.argv.slice(2);
+
+  // Le drapeau est retiré des arguments positionnels : sans ça, `--fondateur`
+  // passé en 3ᵉ position serait pris pour un matricule.
+  const fondateur = arguments_.includes("--fondateur");
+  const [emailBrut, roleBrut, matriculeBrut] = arguments_.filter(
+    (a) => !a.startsWith("--")
+  );
 
   if (!emailBrut) usage("Adresse de courriel manquante.");
   const email = emailBrut.trim().toLowerCase();
@@ -45,6 +69,12 @@ async function principal() {
   const role = (roleBrut ?? "").trim().toUpperCase();
   if (role !== "ADMINISTRATEUR" && role !== "UTILISATEUR") {
     usage("Le rôle doit être ADMINISTRATEUR ou UTILISATEUR.");
+  }
+
+  // Le CHECK `utilisateur_fondateur_est_admin` le refuserait de toute façon, mais
+  // avec un message PostgreSQL illisible.
+  if (fondateur && role !== "ADMINISTRATEUR") {
+    usage("--fondateur n'a de sens que pour un ADMINISTRATEUR.");
   }
 
   const matricule = matriculeBrut?.trim() || null;
@@ -88,6 +118,43 @@ async function principal() {
       });
       idUtilisateur = cree.id;
       console.log(`\n  ✔ Compte créé : ${email} (${role}${matricule ? `, matricule ${matricule}` : ""})`);
+    }
+
+    // ── Transfert de la capacité de fondateur ──────────────────────────────
+    //
+    // Dans UNE transaction, et dans cet ordre : l'ancien fondateur perd le
+    // drapeau avant que le nouveau le reçoive. L'index UNIQUE partiel
+    // `idx_utilisateur_fondateur_unique` refuserait deux porteurs simultanés, donc
+    // l'inverse échouerait.
+    //
+    // Le rôle est aussi porté à ADMINISTRATEUR : le CHECK
+    // `utilisateur_fondateur_est_admin` l'exige, et un compte préexistant en
+    // UTILISATEUR serait sinon refusé.
+    if (fondateur) {
+      const ancien = await prisma.utilisateur.findFirst({
+        where: { estFondateur: true, NOT: { id: idUtilisateur } },
+        select: { id: true, email: true },
+      });
+
+      await prisma.$transaction([
+        prisma.utilisateur.updateMany({
+          where: { estFondateur: true, NOT: { id: idUtilisateur } },
+          data: { estFondateur: false },
+        }),
+        prisma.utilisateur.update({
+          where: { id: idUtilisateur },
+          data: { estFondateur: true, role: "ADMINISTRATEUR" },
+        }),
+      ]);
+
+      if (ancien) {
+        console.log(`\n  ⚠️ Capacité de fondateur TRANSFÉRÉE depuis ${ancien.email}.`);
+        console.log("     Ce compte reste administrateur, mais ne peut plus créer ni");
+        console.log("     révoquer d'administrateur.");
+      } else {
+        console.log("\n  ✔ Compte fondateur. Il est le seul à pouvoir créer et révoquer");
+        console.log("    des administrateurs depuis l'écran.");
+      }
     }
 
     // Jeton : la base ne garde que l'empreinte SHA-256. La valeur en clair

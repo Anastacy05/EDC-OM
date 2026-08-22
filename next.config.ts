@@ -2,6 +2,25 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /**
+   * Répertoire de sortie, pilotable par l'environnement.
+   *
+   * ⚠️ Existe pour une raison précise : **un build de production et un serveur de
+   * développement partagent `.next` et se marchent dessus.** Le 22/08/2026, un
+   * `next build` lancé pendant qu'un `next dev` tournait a cassé le chargement
+   * des polices, avec une erreur qui ne désigne pas la cause (« Can't resolve
+   * @vercel/turbopack-next/internal/font/google/font »). Le diagnostic a été long
+   * parce que rien ne relie le symptôme au cache partagé.
+   *
+   * Les tests de bout en bout compilent donc dans `.next-test`, ce qui laisse le
+   * `.next` de travail intact. `distDir` n'est ni une option de ligne de commande
+   * ni une variable reconnue par Next — d'où cette lecture explicite.
+   *
+   * La valeur ne doit pas sortir du projet : « `distDir` should not leave your
+   * project directory ».
+   */
+  distDir: process.env.EDC_DIST_DIR ?? ".next",
+
+  /**
    * `nodemailer` chargé par le `require` de Node, sans passer par l'empaqueteur.
    *
    * Il résout ses transports et sa table de services connus par des `require`

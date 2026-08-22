@@ -14,6 +14,7 @@ import {
 import {
   lireSaisie,
   validerEmploye,
+  validerSortie,
   normaliserMatricule,
   type ErreursChamps,
 } from "@/lib/data/employes.validation";
@@ -170,35 +171,57 @@ export async function actionModifierEmploye(
 // ---------------------------------------------------------------------------
 
 /**
- * Désactive un employé.
+ * Désactive un employé, avec un motif de sortie FACULTATIF.
  *
- * Signature `(formData)` et non `(etat, formData)` : cette action est appelée
- * par un `<form action={…}>` nu, sans `useActionState` — il n'y a rien à
- * afficher en retour, la liste se rafraîchit.
+ * Signature `(etat, formData)` depuis le 22/08/2026, et non plus `(formData)` : le
+ * motif est validé, donc un refus doit pouvoir s'afficher. Avec la signature nue,
+ * la seule façon de signaler une erreur était de lever — ce qui déclenche la
+ * frontière d'erreur de Next et fait perdre le contexte de la page.
  */
-export async function actionDesactiverEmploye(formData: FormData): Promise<void> {
-  await exigerAdministrateurOuEchouer();
-  const matricule = normaliserMatricule(String(formData.get("matricule") ?? ""));
-  if (!matricule) return;
+export async function actionDesactiverEmploye(
+  _precedent: EtatFormulaireEmploye | undefined,
+  formData: FormData
+): Promise<EtatFormulaireEmploye> {
+  try {
+    await exigerAdministrateurOuEchouer();
+  } catch {
+    return { erreur: "Action réservée à l'administrateur." };
+  }
 
-  const resultat = await desactiverEmploye(matricule);
-  // On lève plutôt que d'ignorer : sans retour visible, un échec silencieux
-  // laisserait l'admin croire que l'employé est désactivé alors qu'il a toujours
-  // accès. La frontière d'erreur de Next l'affichera.
-  if (!resultat.ok) throw new Error(message(resultat.echec));
+  const matricule = normaliserMatricule(String(formData.get("matricule") ?? ""));
+  if (!matricule) return { erreur: "Matricule manquant." };
+
+  const sortie = validerSortie({
+    motifSortie: String(formData.get("motifSortie") ?? ""),
+    noteSortie: String(formData.get("noteSortie") ?? ""),
+  });
+  if ("erreur" in sortie) return { erreur: sortie.erreur };
+
+  const resultat = await desactiverEmploye(matricule, sortie.valide);
+  if (!resultat.ok) return { erreur: message(resultat.echec) };
 
   refresh();
+  return { succes: "Employé désactivé. Son accès est fermé." };
 }
 
-export async function actionReactiverEmploye(formData: FormData): Promise<void> {
-  await exigerAdministrateurOuEchouer();
+export async function actionReactiverEmploye(
+  _precedent: EtatFormulaireEmploye | undefined,
+  formData: FormData
+): Promise<EtatFormulaireEmploye> {
+  try {
+    await exigerAdministrateurOuEchouer();
+  } catch {
+    return { erreur: "Action réservée à l'administrateur." };
+  }
+
   const matricule = normaliserMatricule(String(formData.get("matricule") ?? ""));
-  if (!matricule) return;
+  if (!matricule) return { erreur: "Matricule manquant." };
 
   const resultat = await reactiverEmploye(matricule);
-  if (!resultat.ok) throw new Error(message(resultat.echec));
+  if (!resultat.ok) return { erreur: message(resultat.echec) };
 
   refresh();
+  return { succes: "Employé réactivé. Son accès est rouvert." };
 }
 
 // ---------------------------------------------------------------------------

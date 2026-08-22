@@ -1,13 +1,14 @@
 import { notFound } from "next/navigation";
-import { CircleSlash, RotateCcw, CheckCircle2 } from "lucide-react";
+import { CircleSlash, CheckCircle2 } from "lucide-react";
 import { lireFicheEmploye } from "@/lib/data/employes";
 import { getStatuts, getDepartements } from "@/lib/data/referentiels";
 import { VALIDITE_JETON_HEURES } from "@/lib/data/utilisateurs";
-import { actionDesactiverEmploye, actionReactiverEmploye } from "@/app/personnel/actions";
-import { carteClass, legendClass, titrePageClass, boutonDanger, boutonSecondaire, TAILLE_ICONE } from "@/lib/styles";
+import { libelleMotifSortie } from "@/lib/data/employes.validation";
+import { titrePageClass } from "@/lib/styles";
 import RetourVers from "@/components/RetourVers";
 import FormulaireEmploye from "../FormulaireEmploye";
 import BlocCompte from "./BlocCompte";
+import BlocActivation from "./BlocActivation";
 
 /**
  * Fiche employé : modification, compte d'accès, activation.
@@ -43,7 +44,10 @@ export default async function FicheEmployePage({
         {!fiche.actif && (
           <span className="inline-flex items-center gap-1 rounded bg-slate-200 px-2 py-1 text-xs text-slate-700">
             <CircleSlash size={12} aria-hidden="true" />
-            Désactivé
+            {/* Le motif dans l'étiquette : c'est l'information qu'on cherche en
+                arrivant sur une fiche éteinte. « Désactivé » seul obligeait à
+                descendre en bas de page pour savoir de quoi il s'agit. */}
+            {libelleMotifSortie(fiche.motifSortie) ?? "Désactivé"}
           </span>
         )}
       </div>
@@ -66,52 +70,7 @@ export default async function FicheEmployePage({
 
       <FormulaireEmploye fiche={fiche} statuts={statuts} departements={departements} />
 
-      {/* ── Activation ──────────────────────────────────────────────────────── */}
-      <section className={`${carteClass} max-w-3xl`}>
-        <h2 className={legendClass}>
-          {fiche.actif ? "Désactiver cet employé" : "Réactiver cet employé"}
-        </h2>
-
-        {fiche.actif ? (
-          <>
-            <p className="text-sm text-blue-900/80">
-              La fiche n&apos;est <strong>jamais supprimée</strong> : les ordres de mission
-              déjà signés y font référence, et un OM signé par le Directeur général reste un
-              acte d&apos;autorité même après un départ.
-            </p>
-            <p className="text-sm text-blue-900/80">
-              La désactivation ferme immédiatement l&apos;accès : le compte est désactivé, les
-              sessions en cours sont révoquées, et les invitations non utilisées sont
-              annulées.
-            </p>
-            {/* `<form>` et non `onClick` : c'est une mutation serveur. En POST,
-                elle n'est pas déclenchable par une simple balise <img> pointant
-                sur une URL, ce qui serait le cas d'un GET. */}
-            <form action={actionDesactiverEmploye}>
-              <input type="hidden" name="matricule" value={fiche.matricule} />
-              <button type="submit" className={boutonDanger}>
-                <CircleSlash size={TAILLE_ICONE} aria-hidden="true" />
-                Désactiver
-              </button>
-            </form>
-          </>
-        ) : (
-          <>
-            <p className="text-sm text-blue-900/80">
-              La réactivation rend l&apos;accès au compte tel qu&apos;il était.{" "}
-              <strong>Le mot de passe n&apos;est pas réinitialisé</strong> — émettez un
-              nouveau lien ci-dessus si le compte doit repartir de zéro.
-            </p>
-            <form action={actionReactiverEmploye}>
-              <input type="hidden" name="matricule" value={fiche.matricule} />
-              <button type="submit" className={boutonSecondaire}>
-                <RotateCcw size={TAILLE_ICONE} aria-hidden="true" />
-                Réactiver
-              </button>
-            </form>
-          </>
-        )}
-      </section>
+      <BlocActivation fiche={fiche} />
     </div>
   );
 }

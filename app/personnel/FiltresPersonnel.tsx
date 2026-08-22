@@ -43,11 +43,18 @@ export default function FiltresPersonnel({
    * `router.replace` et non `push` : chaque frappe empilerait sinon une entrée
    * d'historique, et il faudrait autant de « précédent » que de caractères tapés
    * pour sortir de la page.
+   *
+   * ⚠️ **La page est remise à 1 à chaque changement de filtre.** Sans ça, un
+   * utilisateur sur la page 7 qui affine sa recherche atterrirait sur la page 7
+   * d'un résultat qui n'en compte que deux : un écran vide, alors que des
+   * résultats existent. Le cas le plus troublant est celui où l'on croit que le
+   * filtre n'a rien trouvé.
    */
   const definir = (cle: string, v: string) => {
     const suivants = new URLSearchParams(parametres);
     if (v) suivants.set(cle, v);
     else suivants.delete(cle);
+    if (cle !== "page") suivants.delete("page");
     router.replace(suivants.size ? `/personnel?${suivants}` : "/personnel");
   };
 
@@ -82,9 +89,17 @@ export default function FiltresPersonnel({
           onChange={(e) => rechercher(e.target.value)}
           placeholder="Nom, prénoms ou matricule"
           aria-label="Rechercher un employé"
+          // Le dire à l'écran, pas seulement le coder : sans cette mention,
+          // personne ne devine que « ngue » trouve « NGUÉ », et l'utilisateur
+          // s'acharne à saisir les accents.
+          aria-describedby="aide-recherche"
           className={`${filtreInputClass} pl-9 w-64`}
         />
       </div>
+
+      <p id="aide-recherche" className="sr-only">
+        La recherche ignore les accents et la casse : « ngue » trouve « NGUÉ ».
+      </p>
 
       <select
         value={valeur("statut")}

@@ -16,6 +16,9 @@
 # next.js
 /.next/
 /out/
+# Sortie des tests de bout en bout : ils compilent à part pour ne pas piétiner le
+# .next de travail (un build et un `next dev` simultanés cassent les polices).
+/.next-test/
 
 # production
 /build

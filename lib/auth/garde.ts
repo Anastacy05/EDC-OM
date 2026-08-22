@@ -118,6 +118,59 @@ export async function exigerAdministrateurOuEchouer(): Promise<Session> {
 }
 
 /**
+ * Vrai si la session appartient au compte FONDATEUR.
+ *
+ * ── Pourquoi la base et non le jeton ─────────────────────────────────────────
+ *
+ * C'est le point important. Mettre `estFondateur` dans le JWT irait plus vite —
+ * aucune requête — mais le jeton d'accès vit 15 minutes et n'est pas révocable :
+ * retirer la capacité à quelqu'un ne prendrait effet qu'au renouvellement suivant.
+ * Pour le droit de créer d'autres administrateurs, ce quart d'heure est de trop.
+ *
+ * La lecture est aussi la SEULE source d'autorité : un index unique partiel
+ * (`idx_utilisateur_fondateur_unique`) garantit qu'il n'y a qu'un fondateur, et un
+ * CHECK (`utilisateur_fondateur_est_admin`) qu'il est administrateur. Aucune de ces
+ * deux garanties ne survit à une copie dans un jeton.
+ *
+ * `cache()` limite le coût à une requête par requête HTTP, même appelée plusieurs
+ * fois pendant un rendu.
+ */
+export const estFondateur = cache(async (): Promise<boolean> => {
+  const session = await lireSession();
+  if (!session || session.role !== "ADMINISTRATEUR") return false;
+
+  // Importation à l'intérieur de la fonction, et non en tête de module : ce
+  // module est importé par des composants dont beaucoup n'ont aucun besoin de
+  // Prisma. Le charger d'office alourdirait leur graphe sans raison.
+  const { prisma } = await import("@/lib/data/client");
+  const compte = await prisma.utilisateur.findUnique({
+    where: { id: BigInt(session.idUtilisateur) },
+    select: { estFondateur: true, actif: true },
+  });
+
+  // `actif` revérifié : un compte désactivé entre l'émission du jeton et
+  // maintenant ne doit plus rien pouvoir, capacité de fondateur comprise.
+  return compte?.estFondateur === true && compte.actif === true;
+});
+
+/**
+ * Exige la capacité de fondateur, pour une Server Action.
+ *
+ * Le message dit ce qui manque sans nommer le titulaire : révéler QUI est
+ * fondateur désignerait le compte à attaquer pour obtenir tous les droits.
+ */
+export async function exigerFondateurOuEchouer(): Promise<Session> {
+  const session = await exigerAdministrateurOuEchouer();
+  if (!(await estFondateur())) {
+    throw new Error(
+      "Action réservée au compte fondateur. Les autres administrateurs ne peuvent " +
+        "pas créer ni révoquer d'administrateur."
+    );
+  }
+  return session;
+}
+
+/**
  * Vrai si la session peut agir sur les données de ce matricule.
  *
  * Un administrateur voit tout ; un utilisateur ne voit que SES propres OM et

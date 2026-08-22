@@ -4,6 +4,7 @@ import { cache } from "react";
 import { prisma } from "@/lib/data/client";
 import { exigerAdministrateur, exigerSession, peutAccederAuMatricule } from "@/lib/auth/garde";
 import type { EmployeValide } from "@/lib/data/employes.validation";
+import { PAR_PAGE } from "@/lib/pagination";
 
 /**
  * Accès aux employés. **Chaque fonction porte sa propre garde d'autorisation.**
@@ -48,6 +49,8 @@ export interface EmployeListe {
   statut: string; // libellé, pas le code : c'est ce qui s'affiche
   departement: string;
   actif: boolean;
+  /** Code du motif de sortie, nul si la fiche est active ou le motif non renseigné. */
+  motifSortie: string | null;
   /** Vrai si un compte utilisateur est rattaché — pilote l'action « inviter ». */
   aUnCompte: boolean;
   /** Vrai si le compte existe mais n'a jamais servi (invitation en attente). */
@@ -72,6 +75,12 @@ export interface EmployeFiche {
   estDetache: boolean;
   joursCongeOrigine: number | null;
   actif: boolean;
+  /** Date de désactivation, au format `AAAA-MM-JJ`. Nulle si la fiche est active. */
+  desactiveLe: string | null;
+  /** Code du motif de sortie, ou `null` : il est facultatif. */
+  motifSortie: string | null;
+  /** Précision libre accompagnant le motif. */
+  noteSortie: string | null;
   compte: {
     email: string;
     role: string;
@@ -106,69 +115,219 @@ export interface FiltresPersonnel {
   codeDepartement?: string;
   /** Par défaut, les employés désactivés sont masqués. */
   inclureInactifs?: boolean;
+  /** Page demandée, à partir de 1. */
+  page?: number;
 }
 
 /**
- * Liste du personnel, filtrée.
+ * Lignes par page.
  *
- * ⚠️ `mode: "insensitive"` sur la recherche : sans lui, chercher « nkolo » ne
- * trouverait pas « NKOLO ATANGANA », les noms étant stockés en majuscules.
+ * Réexportée depuis `lib/pagination.ts` pour ne pas casser les appelants, mais
+ * DÉFINIE là-bas : ce module est `server-only` et tire `next/navigation`, donc il
+ * n'est pas importable depuis un test ou un script.
+ */
+export { PAR_PAGE } from "@/lib/pagination";
+
+/** Une page de résultats, avec de quoi construire la navigation. */
+export interface PagePersonnel {
+  employes: EmployeListe[];
+  /** Total AVANT pagination : c'est lui qui donne le nombre de pages. */
+  total: number;
+  /** Page effectivement servie (corrigée si l'appelant a demandé n'importe quoi). */
+  page: number;
+  nombrePages: number;
+}
+
+/**
+ * Ligne brute du `$queryRaw`. Les alias sont en minuscules sans accent :
+ * PostgreSQL replie les identifiants non entre guillemets, donc `nomStatut`
+ * reviendrait en `nomstatut` et la lecture serait `undefined`.
+ */
+interface LigneBrute {
+  matricule: string;
+  nom: string;
+  prenoms: string;
+  fonction: string;
+  libelle_statut: string;
+  libelle_departement: string;
+  actif: boolean;
+  motif_sortie: string | null;
+  a_un_compte: boolean;
+  compte_en_attente: boolean;
+  /** Total sur l'ensemble du filtre, répété sur chaque ligne (fenêtre SQL). */
+  total: bigint;
+}
+
+/**
+ * Liste du personnel, filtrée, **insensible aux accents** et paginée.
  *
- * ⚠️ Ce n'est PAS insensible aux accents. L'extension `unaccent` est installée
- * (migration `20260821010000_contraintes_natives`) mais Prisma ne l'expose pas :
- * il faudrait du SQL brut. Conséquence à connaître : « rene » ne trouve pas
- * « RENÉ ». À traiter si les RH le signalent — un index `unaccent(nom)` et une
- * requête `$queryRaw` suffiraient.
+ * ── Pourquoi du SQL brut ─────────────────────────────────────────────────────
+ *
+ * Parce que Prisma n'expose pas `unaccent`. Et l'insensibilité aux accents n'est
+ * pas un raffinement : les états du personnel comportent « NGUÉ », « ÉLOÏSE »,
+ * « MBIDA ÉTOUNDI », et personne ne tape les accents dans un champ de recherche.
+ * Sans ça, « ngue » ne trouve rien — la recherche paraît cassée.
+ *
+ * On passe par la fonction `sans_accent()` posée par la migration
+ * `20260821214330_motif_sortie_et_fondateur`. Elle nomme le dictionnaire
+ * explicitement, ce qui la rend `IMMUTABLE` — condition sans laquelle PostgreSQL
+ * refuse de l'indexer (`unaccent(text)` seul est `STABLE`, parce qu'il résout son
+ * dictionnaire via `search_path`).
+ *
+ * Les index `idx_employe_nom_sans_accent` et `idx_employe_prenoms_sans_accent`
+ * portent sur `lower(sans_accent(...))`, donc **l'expression du WHERE doit être
+ * écrite exactement de la même façon**, sinon ils ne sont pas utilisés.
+ *
+ * ⚠️ Une recherche en `%mot%` (début joker) ne peut de toute façon PAS utiliser un
+ * index B-tree. Ces index servent les recherches par préfixe ; pour du milieu de
+ * chaîne, PostgreSQL parcourt la table. Sans effet à 400 lignes ; si le volume
+ * changeait d'ordre, il faudrait un index `pg_trgm` (`GIN … gin_trgm_ops`).
+ *
+ * ── Injection SQL ────────────────────────────────────────────────────────────
+ *
+ * `$queryRaw` avec des marqueurs `${}` produit une requête **préparée** : les
+ * valeurs sont transmises hors du texte SQL, jamais concaténées. C'est
+ * `$queryRawUnsafe` qui interpole, et on ne l'emploie pas ici.
  */
 export async function listerPersonnel(
   filtres: FiltresPersonnel = {}
-): Promise<EmployeListe[]> {
+): Promise<PagePersonnel> {
   await exigerAdministrateur();
 
-  const recherche = filtres.recherche?.trim();
+  const recherche = filtres.recherche?.trim() || null;
+  const codeStatut = filtres.codeStatut?.trim() || null;
+  const codeDepartement = filtres.codeDepartement?.trim() || null;
+  const inclureInactifs = filtres.inclureInactifs === true;
 
-  const lignes = await prisma.employe.findMany({
-    where: {
-      ...(filtres.inclureInactifs ? {} : { actif: true }),
-      ...(filtres.codeStatut ? { codeStatut: filtres.codeStatut } : {}),
-      ...(filtres.codeDepartement ? { codeDepartement: filtres.codeDepartement } : {}),
-      ...(recherche
-        ? {
-            OR: [
-              { nom: { contains: recherche, mode: "insensitive" } },
-              { prenoms: { contains: recherche, mode: "insensitive" } },
-              { matricule: { contains: recherche, mode: "insensitive" } },
-            ],
-          }
-        : {}),
-    },
-    // Nom puis prénoms : l'ordre dans lequel les RH lisent un état du personnel.
-    orderBy: [{ nom: "asc" }, { prenoms: "asc" }],
-    select: {
-      matricule: true,
-      nom: true,
-      prenoms: true,
-      fonction: true,
-      actif: true,
-      statut: { select: { libelle: true } },
-      departement: { select: { libelle: true } },
-      // On ne récupère QUE de quoi savoir si le compte existe et s'il a servi,
-      // pas le courriel : la liste ne l'affiche pas.
-      utilisateur: { select: { motDePasseHash: true } },
-    },
-  });
+  // Page assainie : un `?page=0`, `?page=-3` ou `?page=abc` venu de l'URL ne doit
+  // pas produire un OFFSET négatif, que PostgreSQL rejetterait par une erreur.
+  const pageDemandee =
+    Number.isFinite(filtres.page) && filtres.page! >= 1 ? Math.floor(filtres.page!) : 1;
 
-  return lignes.map((e) => ({
-    matricule: e.matricule,
-    nom: e.nom,
-    prenoms: e.prenoms,
-    fonction: e.fonction,
-    statut: e.statut.libelle,
-    departement: e.departement.libelle,
-    actif: e.actif,
-    aUnCompte: e.utilisateur !== null,
-    compteEnAttente: e.utilisateur !== null && e.utilisateur.motDePasseHash === null,
-  }));
+  // `%` posés ici et non dans le SQL : la valeur reste un paramètre lié, donc les
+  // caractères spéciaux du motif LIKE saisis par l'utilisateur restent inertes.
+  const motif = recherche === null ? null : `%${recherche}%`;
+
+  const lignes = await prisma.$queryRaw<LigneBrute[]>`
+    SELECT
+      e.matricule,
+      e.nom,
+      e.prenoms,
+      e.fonction,
+      s.libelle AS libelle_statut,
+      d.libelle AS libelle_departement,
+      e.actif,
+      e.motif_sortie,
+      (u.id IS NOT NULL)                                  AS a_un_compte,
+      (u.id IS NOT NULL AND u.mot_de_passe_hash IS NULL)  AS compte_en_attente,
+      -- Fenêtre : le total du filtre est calculé dans LA MÊME requête que la
+      -- page. Deux requêtes séparées pourraient tomber de part et d'autre d'une
+      -- écriture concurrente et afficher « page 3 sur 2 ».
+      COUNT(*) OVER ()                                    AS total
+    FROM employe e
+    JOIN statut       s ON s.code = e.code_statut
+    JOIN departement  d ON d.code = e.code_departement
+    LEFT JOIN utilisateur u ON u.matricule = e.matricule
+    WHERE
+      (${inclureInactifs} OR e.actif IS TRUE)
+      AND (${codeStatut}::text       IS NULL OR e.code_statut      = ${codeStatut})
+      AND (${codeDepartement}::text  IS NULL OR e.code_departement = ${codeDepartement})
+      AND (
+        ${motif}::text IS NULL
+        OR lower(sans_accent(e.nom))     LIKE lower(sans_accent(${motif}))
+        OR lower(sans_accent(e.prenoms)) LIKE lower(sans_accent(${motif}))
+        -- Le matricule n'a pas d'accent, mais la fonction y est appliquée pour
+        -- garder une expression homogène ; le coût est nul.
+        OR lower(sans_accent(e.matricule)) LIKE lower(sans_accent(${motif}))
+      )
+    -- Nom puis prénoms : l'ordre dans lequel les RH lisent un état du personnel.
+    -- Le tri porte sur la forme SANS ACCENT, sinon « NGUÉ » se classe après
+    -- « NGUZ » — la collation place les lettres accentuées à part.
+    -- Le matricule en dernier départage les homonymes : sans un ordre TOTAL, deux
+    -- pages peuvent répéter ou omettre une ligne (l'ordre des égalités n'est pas
+    -- garanti d'une requête à l'autre).
+    -- ⚠️ Aucun accent grave dans ces commentaires : ils sont à l'intérieur d'un
+    -- littéral de gabarit, et le premier rencontré le refermerait.
+    ORDER BY sans_accent(e.nom), sans_accent(e.prenoms), e.matricule
+    LIMIT ${PAR_PAGE} OFFSET ${(pageDemandee - 1) * PAR_PAGE}
+  `;
+
+  // ── Le total quand la page est vide ──────────────────────────────────────
+  //
+  // ⚠️ DÉFAUT TROUVÉ PAR LES TESTS (22/08/2026). `COUNT(*) OVER ()` est une
+  // fonction de fenêtre : elle est calculée SUR LES LIGNES RENVOYÉES. Au-delà de
+  // la dernière page, la requête n'en renvoie aucune — le total était donc lu
+  // comme 0, et l'écran annonçait « aucun employé ne correspond » alors que des
+  // résultats existaient. L'utilisateur était invité à élargir sa recherche quand
+  // il fallait revenir en arrière.
+  //
+  // Une page vide au-delà de la fin et un filtre sans résultat ne sont pas la
+  // même chose, et ne demandent pas la même action. On refait donc un décompte —
+  // mais SEULEMENT dans ce cas, qui est rare : une page vide au-delà de la
+  // première. Le cas courant garde sa requête unique.
+  let total: number;
+  if (lignes.length > 0) {
+    total = Number(lignes[0].total);
+  } else if (pageDemandee > 1) {
+    total = await compterPersonnel({ recherche, codeStatut, codeDepartement, inclureInactifs });
+  } else {
+    // Page 1 vide : le filtre ne trouve rien, inutile de recompter.
+    total = 0;
+  }
+
+  const nombrePages = Math.max(1, Math.ceil(total / PAR_PAGE));
+
+  return {
+    employes: lignes.map((e) => ({
+      matricule: e.matricule,
+      nom: e.nom,
+      prenoms: e.prenoms,
+      fonction: e.fonction,
+      statut: e.libelle_statut,
+      departement: e.libelle_departement,
+      actif: e.actif,
+      motifSortie: e.motif_sortie,
+      aUnCompte: e.a_un_compte,
+      compteEnAttente: e.compte_en_attente,
+    })),
+    total,
+    page: pageDemandee,
+    nombrePages,
+  };
+}
+
+/**
+ * Compte les employés d'un filtre, sans pagination.
+ *
+ * Appelée uniquement quand une page au-delà de la première revient vide : c'est
+ * le seul moment où la fonction de fenêtre ne peut rien dire. Les conditions
+ * doivent rester **identiques** à celles de `listerPersonnel`, sinon le total
+ * annoncé ne correspondrait pas à la liste.
+ */
+async function compterPersonnel(filtres: {
+  recherche: string | null;
+  codeStatut: string | null;
+  codeDepartement: string | null;
+  inclureInactifs: boolean;
+}): Promise<number> {
+  const motif = filtres.recherche === null ? null : `%${filtres.recherche}%`;
+
+  const [ligne] = await prisma.$queryRaw<{ total: bigint }[]>`
+    SELECT COUNT(*) AS total
+    FROM employe e
+    WHERE
+      (${filtres.inclureInactifs} OR e.actif IS TRUE)
+      AND (${filtres.codeStatut}::text      IS NULL OR e.code_statut      = ${filtres.codeStatut})
+      AND (${filtres.codeDepartement}::text IS NULL OR e.code_departement = ${filtres.codeDepartement})
+      AND (
+        ${motif}::text IS NULL
+        OR lower(sans_accent(e.nom))       LIKE lower(sans_accent(${motif}))
+        OR lower(sans_accent(e.prenoms))   LIKE lower(sans_accent(${motif}))
+        OR lower(sans_accent(e.matricule)) LIKE lower(sans_accent(${motif}))
+      )
+  `;
+
+  return Number(ligne?.total ?? 0);
 }
 
 /**
@@ -218,6 +377,11 @@ export const lireFicheEmploye = cache(
       // serveur/client, un Decimal n'étant pas sérialisable en RSC.
       joursCongeOrigine: e.joursCongeOrigine === null ? null : Number(e.joursCongeOrigine),
       actif: e.actif,
+      // `desactiveLe` est un `TIMESTAMPTZ` et non un `DATE` : on garde l'instant
+      // complet en ISO, la mise en forme appartient à l'écran.
+      desactiveLe: e.desactiveLe?.toISOString() ?? null,
+      motifSortie: e.motifSortie,
+      noteSortie: e.noteSortie,
       compte: e.utilisateur
         ? {
             email: e.utilisateur.email,
@@ -355,9 +519,18 @@ export async function modifierEmploye(
  * Les sessions du compte rattaché sont révoquées dans la même transaction, et
  * le compte désactivé : sans ça, l'employé garderait son accès jusqu'à
  * l'expiration de son jeton.
+ *
+ * `sortie` est FACULTATIF (décision du 21/08/2026) : une désactivation urgente ne
+ * doit pas être retenue par un champ à remplir. La contrainte
+ * `employe_motif_sortie_si_inactif` interdit un motif sur une fiche active, elle
+ * n'en exige jamais un.
  */
 export async function desactiverEmploye(
-  matricule: string
+  matricule: string,
+  sortie: { motifSortie: string | null; noteSortie: string | null } = {
+    motifSortie: null,
+    noteSortie: null,
+  }
 ): Promise<{ ok: true } | { ok: false; echec: EchecEcriture }> {
   await exigerAdministrateur();
 
@@ -366,7 +539,15 @@ export async function desactiverEmploye(
     await prisma.$transaction(async (tx) => {
       await tx.employe.update({
         where: { matricule },
-        data: { actif: false, desactiveLe: maintenant },
+        data: {
+          actif: false,
+          desactiveLe: maintenant,
+          // Le cast est nécessaire : l'énumération Prisma est un type nominal, et
+          // la valeur vient d'un formulaire. `validerSortie` a déjà vérifié
+          // qu'elle appartient bien à la liste — c'est là qu'est la sûreté.
+          motifSortie: sortie.motifSortie as never,
+          noteSortie: sortie.noteSortie,
+        },
       });
 
       const compte = await tx.utilisateur.findUnique({
@@ -401,6 +582,11 @@ export async function desactiverEmploye(
  * redevient vrai, et laisser l'ancienne date ferait croire à une désactivation
  * en cours.
  *
+ * ⚠️ Le motif et la note DOIVENT être effacés : la contrainte
+ * `employe_motif_sortie_si_inactif` refuse un motif sur une fiche active, donc les
+ * laisser ferait échouer la transaction. C'est aussi juste sur le fond — un
+ * employé revenu n'a plus de motif de sortie.
+ *
  * ⚠️ Le mot de passe n'est PAS réinitialisé. Un employé revenu de détachement
  * retrouve son accès tel quel. Si le compte doit repartir de zéro, l'admin émet
  * un nouveau lien depuis la fiche.
@@ -414,7 +600,7 @@ export async function reactiverEmploye(
     await prisma.$transaction(async (tx) => {
       await tx.employe.update({
         where: { matricule },
-        data: { actif: true, desactiveLe: null },
+        data: { actif: true, desactiveLe: null, motifSortie: null, noteSortie: null },
       });
       await tx.utilisateur.updateMany({ where: { matricule }, data: { actif: true } });
     });

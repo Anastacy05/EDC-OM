@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { ShieldCheck, ChevronRight } from "lucide-react";
 import { configOM, mettreAJourConfig, reinitialiserConfig } from "@/lib/config";
 import { useEstMonte } from "@/lib/useEstMonte";
 import { inputClass, carteClass, legendClass, titrePageClass } from "@/lib/styles";
@@ -10,7 +12,8 @@ import { inputClass, carteClass, legendClass, titrePageClass } from "@/lib/style
 // /admin/...). Le garder ici en aurait fait une seconde source de vérité,
 // vouée à diverger de celle des onglets.
 //
-// `Link` n'est plus importé pour la même raison : plus aucun lien sur cette page.
+// `Link` est de nouveau importé depuis le 22/08/2026, pour la gestion des
+// administrateurs — un réglage qui S'ÉCRIT, donc à sa place ici.
 
 export default function ParametresPage() {
   const estMonte = useEstMonte();
@@ -69,14 +72,43 @@ export default function ParametresPage() {
           l&apos;étape 9.
         </div>
 
-        {!estMonte ? (
-          // Le rendu serveur ne connaît que les valeurs par défaut, le
-          // navigateur celles de localStorage : afficher les premières
-          // provoquerait un écart d'hydratation. On attend donc le client.
+        {/* ── Administrateurs ────────────────────────────────────────────────
+            Hors du garde-fou `estMonte` : cette carte ne lit pas localStorage,
+            donc elle n'a aucun écart d'hydratation à craindre et peut s'afficher
+            d'emblée. */}
+        <Link
+          href="/parametres/administrateurs"
+          className={`${carteClass} group flex w-full max-w-2xl items-center justify-between gap-4
+                      transition-colors duration-200 hover:bg-white
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500`}
+        >
+          <span className="flex items-start gap-3">
+            <ShieldCheck size={20} aria-hidden="true" className="mt-0.5 shrink-0 text-blue-700" />
+            <span className="flex flex-col gap-1 text-left">
+              <span className={legendClass}>Administrateurs</span>
+              <span className="text-sm text-gray-600">
+                Voir qui détient les droits d&apos;administration. Seul le compte
+                fondateur peut en créer ou en retirer.
+              </span>
+            </span>
+          </span>
+          <ChevronRight
+            size={20}
+            aria-hidden="true"
+            className="shrink-0 text-blue-700 transition-transform duration-200 group-hover:translate-x-1"
+          />
+        </Link>
+
+        {/* Le rendu serveur ne connaît que les valeurs par défaut, le navigateur
+            celles de localStorage : afficher les premières provoquerait un écart
+            d'hydratation. On attend donc le client. */}
+        {!estMonte && (
           <div className={carteClass}>
             <p className="text-sm text-gray-500">Chargement des réglages…</p>
           </div>
-        ) : (
+        )}
+
+        {estMonte && (
           <>
             <section className={carteClass}>
               <h2 className={legendClass}>Âge de départ en retraite</h2>

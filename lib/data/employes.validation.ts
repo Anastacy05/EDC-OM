@@ -42,6 +42,86 @@ export type SituationFamille = (typeof SITUATIONS_FAMILLE)[number]["valeur"];
 const CODES_SITUATION = new Set<string>(SITUATIONS_FAMILLE.map((s) => s.valeur));
 
 /**
+ * Motifs de sortie, alignés sur l'énumération `MotifSortie` du schéma.
+ *
+ * ── Pourquoi ils existent ────────────────────────────────────────────────────
+ *
+ * `actif = false` ne disait rien. « Parti à la retraite », « en congé sans
+ * solde » et « décédé » n'ont pas les mêmes suites : on écrit à un retraité, on
+ * attend un suspendu, on n'écrit pas à une famille endeuillée. Cette information
+ * était *perdue*, pas seulement absente.
+ *
+ * ── FACULTATIF, et c'est une décision ────────────────────────────────────────
+ *
+ * Arbitré le 21/08/2026 : « oui mais il n'est pas obligatoire ». Une
+ * désactivation urgente — un accès à fermer tout de suite — ne doit pas être
+ * retenue par un champ à remplir. La contrainte de base va dans le même sens :
+ * elle interdit un motif sur une fiche ACTIVE, elle n'en exige jamais un.
+ *
+ * L'ordre suit la fréquence attendue, pas l'alphabet : ce qui arrive souvent est
+ * en haut de la liste déroulante.
+ */
+export const MOTIFS_SORTIE = [
+  { valeur: "RETRAITE", libelle: "Départ à la retraite" },
+  { valeur: "DEMISSION", libelle: "Démission" },
+  { valeur: "FIN_DE_CONTRAT", libelle: "Fin de contrat" },
+  { valeur: "DETACHEMENT", libelle: "Détachement vers une autre administration" },
+  { valeur: "SUSPENSION", libelle: "Suspension (congé sans solde, disponibilité)" },
+  { valeur: "LICENCIEMENT", libelle: "Licenciement" },
+  { valeur: "DECES", libelle: "Décès" },
+  { valeur: "AUTRE", libelle: "Autre" },
+] as const;
+
+export type MotifSortie = (typeof MOTIFS_SORTIE)[number]["valeur"];
+
+const CODES_MOTIF = new Set<string>(MOTIFS_SORTIE.map((m) => m.valeur));
+
+/** Libellé d'un motif, ou le code brut s'il est inconnu — jamais rien d'illisible. */
+export function libelleMotifSortie(motif: string | null): string | null {
+  if (!motif) return null;
+  return MOTIFS_SORTIE.find((m) => m.valeur === motif)?.libelle ?? motif;
+}
+
+/** Longueur maximale de la note de sortie. Aligné sur la colonne `TEXT`, borné ici. */
+export const LONGUEUR_NOTE_SORTIE = 500;
+
+/**
+ * Valide le motif et la note d'une désactivation.
+ *
+ * Les deux sont facultatifs, mais un motif fourni doit appartenir à
+ * l'énumération : sans ce contrôle, une valeur inventée envoyée en POST ferait
+ * échouer l'écriture sur une erreur PostgreSQL illisible plutôt que sur un
+ * message.
+ */
+export function validerSortie(saisie: { motifSortie: string; noteSortie: string }):
+  | { valide: { motifSortie: MotifSortie | null; noteSortie: string | null } }
+  | { erreur: string } {
+  const motif = saisie.motifSortie.trim();
+  const note = saisie.noteSortie.trim();
+
+  if (motif !== "" && !CODES_MOTIF.has(motif)) {
+    return { erreur: "Motif de sortie inconnu." };
+  }
+  if (note.length > LONGUEUR_NOTE_SORTIE) {
+    return { erreur: `La note ne doit pas dépasser ${LONGUEUR_NOTE_SORTIE} caractères.` };
+  }
+
+  // Une note sans motif est refusée : la contrainte de base ne l'interdit pas,
+  // mais « note_sortie renseignée, motif_sortie nul » se lit mal dans un état RH
+  // — on ne sait pas de quoi la note parle.
+  if (note !== "" && motif === "") {
+    return { erreur: "Choisissez un motif pour accompagner cette précision." };
+  }
+
+  return {
+    valide: {
+      motifSortie: motif === "" ? null : (motif as MotifSortie),
+      noteSortie: note === "" ? null : note,
+    },
+  };
+}
+
+/**
  * Bornes d'âge acceptées à la saisie.
  *
  * Volontairement larges : l'âge de retraite est un PARAMÈTRE (table
