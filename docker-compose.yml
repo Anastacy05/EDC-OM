@@ -1,0 +1,44 @@
+services:
+  # Base de données de développement local.
+  #
+  # PostgreSQL 16 et non 15 : le modèle utilise une contrainte EXCLUDE sur un
+  # int4range (plages de numéros d'OM, MODELE-DONNEES.md §7), des types énumérés
+  # et des CHECK — tout est disponible en 16, avec le support le plus long.
+  #
+  # ⚠️ Cette configuration est pour le DÉVELOPPEMENT UNIQUEMENT : le mot de passe
+  # est en clair et le port est exposé sur la machine. En production, la base ne
+  # doit pas être joignable depuis l'extérieur et les identifiants doivent venir
+  # d'un gestionnaire de secrets.
+  db:
+    image: postgres:16-alpine
+    container_name: edc-om-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: edc
+      POSTGRES_PASSWORD: edc_dev_only
+      POSTGRES_DB: edc_om
+      # Le tri des libellés en français (accents) dépend de la locale de la
+      # base. Sans ça, « Élevé » se trie après « Zone » dans un ORDER BY.
+      POSTGRES_INITDB_ARGS: "--locale=fr_FR.UTF-8 --encoding=UTF8"
+      LANG: fr_FR.UTF-8
+    ports:
+      # 5433 côté machine et non 5432 : évite le conflit avec une éventuelle
+      # installation PostgreSQL déjà présente sur le poste.
+      - "5433:5432"
+    volumes:
+      - edc_om_data:/var/lib/postgresql/data
+      # Scripts exécutés UNE SEULE FOIS, à la création du volume : ils installent
+      # les extensions requises. Si le volume existe déjà, ils sont ignorés —
+      # d'où le `IF NOT EXISTS` dans le script, qui rend l'opération rejouable
+      # à la main.
+      - ./prisma/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # Prisma échouerait avec une erreur peu lisible si la migration démarrait
+      # avant que la base accepte les connexions.
+      test: ["CMD-SHELL", "pg_isready -U edc -d edc_om"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  edc_om_data:

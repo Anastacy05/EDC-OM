@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateOmDocx } from "@/lib/generateOmDocx";
+import { lireSession } from "@/lib/auth/garde";
 import type { OrdreMissionDocument } from "@/types/om";
 
 // Obligatoire : docxtemplater/pizzip ont besoin de Node (fs, buffers), pas d'Edge.
@@ -8,9 +9,46 @@ export const runtime = "nodejs";
 // Le front envoie l'OM qu'il a déjà (mock data pour l'instant, base
 // PostgreSQL via Prisma plus tard) — cette route ne fait AUCUN appel
 // réseau, elle se contente de générer le fichier à partir de ce qu'on lui
-// donne. Aucune revalidation des règles métier ici pour l'instant (voir
-// AMELIORATIONS.md #2) : à faire une fois Prisma branché, avant génération.
+// donne.
+//
+// ⚠️ AUCUNE authentification ni revalidation des règles métier ici. La doc
+// Next 16 est explicite sur ce risque pour les Server Functions, et il vaut
+// autant pour un Route Handler : « reachable via direct POST requests, not
+// just through your application's UI ». N'importe qui peut donc obtenir un
+// document Word au contenu de son choix.
+//
+// À corriger quand la base sera branchée : la route devra recevoir un
+// IDENTIFIANT d'OM et lire les données EN BASE, au lieu de faire confiance au
+// corps de la requête. Cf. MODELE-DONNEES.md §1 et §13 (étape 8).
+//
+// ⚠️ Cette route devra aussi migrer côté navigateur : l'OM doit être
+// téléchargeable HORS LIGNE (MODELE-DONNEES.md §1), ce qu'un Route Handler ne
+// permet pas. docxtemplater fonctionne dans le navigateur — c'est son usage
+// d'origine. Les deux exigences se rejoignent mal : lecture en base (serveur)
+// contre téléchargement hors ligne (client). À trancher à l'étape 10.
 export async function POST(request: NextRequest) {
+  // Garde d'authentification. Le proxy en pose déjà une en amont, mais elle ne
+  // suffit pas : la doc prévient que « A matcher change or a refactor that moves
+  // a Server Function to a different route can silently remove Proxy coverage.
+  // Always verify authentication and authorization inside each Server Function ».
+  // Un Route Handler est exactement dans ce cas.
+  //
+  // `lireSession()` et non `exigerSession()` : cette dernière REDIRIGE, ce qui
+  // renverrait du HTML à un client qui attend un `.docx`. Ici on répond 401.
+  //
+  // ⚠️ Ce contrôle vérifie seulement QUI appelle, pas CE QU'il demande : le
+  // contenu du document vient toujours du corps de la requête, donc un employé
+  // authentifié peut encore se fabriquer un OM au contenu de son choix. La
+  // correction est la même qu'annoncée ci-dessus — lire l'OM en base à partir
+  // de son identifiant — et relève de l'étape 8.
+  const session = await lireSession();
+  if (!session) {
+    return NextResponse.json(
+      { error: "Non authentifié." },
+      { status: 401, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
   const om: OrdreMissionDocument = await request.json();
 
   let buffer: Buffer;

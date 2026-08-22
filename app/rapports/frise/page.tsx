@@ -5,10 +5,16 @@ import { useRouter } from "next/navigation";
 import Modal from "@/components/Modal";
 import { missionsParAnnee, missionsParMoisDansAnnee, bornesDuMois, NOMS_MOIS } from "@/lib/analytics";
 import { titrePageClass, carteClass } from "@/lib/styles";
+import RetourVers from "@/components/RetourVers";
+import { useEstMonte } from "@/lib/useEstMonte";
 
 export default function FriseRapportPage() {
   const router = useRouter();
   const [anneeOuverte, setAnneeOuverte] = useState<number | null>(null);
+  // Garde-fou d'hydratation : `missionsParAnnee()` dérive de `mockOMs`, qui vaut
+  // les données par défaut au rendu serveur et celles de localStorage côté
+  // client. Les deux rendus divergeraient (cf. app/om/[id]/page.tsx).
+  const estMonte = useEstMonte();
 
   const comptesAnnee = missionsParAnnee();
   const maxAnnee = Math.max(1, ...comptesAnnee.map((c) => c.count));
@@ -24,12 +30,19 @@ export default function FriseRapportPage() {
 
   return (
     <div className="min-h-full w-full bg-blue-50 flex flex-col gap-8 p-10">
+      {/* Destination DÉCLARÉE, jamais déduite de l'URL : ces rapports
+          renvoient vers /om?filtre=… , donc un retour calculé sur le chemin
+          courant se tromperait. */}
+      <RetourVers href="/rapports" libelle="Retour aux rapports" />
+
       <h1 className={titrePageClass}>Missions par année</h1>
 
       <div className={`${carteClass} max-w-4xl`}>
         <p className="text-sm text-gray-600">Clique sur une année pour voir le détail par mois.</p>
 
-        {comptesAnnee.length === 0 ? (
+        {!estMonte ? (
+          <p className="text-gray-500 text-sm">Chargement des données…</p>
+        ) : comptesAnnee.length === 0 ? (
           <p className="text-gray-500 text-sm">Aucune mission enregistrée pour l&apos;instant.</p>
         ) : (
           <div className="flex items-end gap-6 h-56 overflow-x-auto px-2">
@@ -42,7 +55,7 @@ export default function FriseRapportPage() {
                 <span className="text-sm font-medium text-blue-800">{count}</span>
                 <div
                   style={{ height: `${Math.max(8, (count / maxAnnee) * 160)}px` }}
-                  className="w-16 rounded-t-lg bg-blue-400 group-hover:bg-amber-500 transition-colors"
+                  className="w-16 rounded-t-lg bg-blue-600 group-hover:bg-amber-700 transition-colors"
                 />
                 <span className="text-sm text-gray-600 border-t-2 border-blue-800 pt-1 w-full text-center">
                   {cle}

@@ -1,48 +1,68 @@
-"use client";
-
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { FilePlus2, List } from "lucide-react";
+import { boutonPrimaire, boutonSecondaire, TAILLE_ICONE } from "@/lib/styles";
 
-export default function Home() {
-  const router = useRouter();
-
+/**
+ * Accueil.
+ *
+ * ── Composant SERVEUR depuis le 21/08/2026 ───────────────────────────────────
+ *
+ * Il était client uniquement pour appeler `router.push()` depuis le `onClick` de
+ * deux `<div>`. C'était doublement coûteux : `useRouter` obligeait toute la page
+ * à partir au navigateur, et surtout un `<div onClick>` n'est PAS un lien — il
+ * n'est ni atteignable au clavier, ni annoncé comme lien, ni ouvrable dans un
+ * nouvel onglet, et il n'affiche pas sa cible dans la barre d'état. Deux `<Link>`
+ * font le même travail, mieux, sans une ligne de JavaScript.
+ *
+ * ── Hiérarchie des actions ───────────────────────────────────────────────────
+ *
+ * Les deux boutons se valaient visuellement : même taille, même forme, deux
+ * bleus différents. Rien ne disait lequel est l'action attendue. « Créer » devient
+ * l'action principale (plein), « Consulter » la secondaire (contour) — c'est la
+ * raison d'être de l'application, et lire une liste est toujours moins engageant
+ * qu'une création.
+ */
+export default function Accueil() {
   return (
-    <div className="h-full w-full flex flex-col justify-center items-center gap-20 p-10 bg-blue-50">
-      <div className="flex flex-col justify-center items-center gap-5">
-        <div className="text-5xl font-bold italic text-amber-500 drop-shadow-xl">
-          OM for EDC
-        </div>
-        <div className="text-amber-700 text-md font-medium">
-          Votre Application de gestion des Ordres de Missions
-        </div>
-        <div className="relative w-50 h-50 rounded-xl overflow-hidden">
+    <div className="flex min-h-full w-full flex-col items-center justify-center gap-12 bg-blue-50 p-6 sm:p-10">
+      <div className="flex flex-col items-center gap-4 text-center">
+        <div className="relative h-32 w-32 overflow-hidden rounded-2xl shadow-lg shadow-blue-950/10">
+          {/* alt="" : purement décoratif — le titre juste en dessous porte
+              l'identité. Un alt « Logo » serait annoncé en doublon. */}
           <Image
             src="/logo.jpeg"
-            alt="Logo"
+            alt=""
             fill
-            sizes="(max-width: 768px) 100vw, 33vw"
+            sizes="128px"
             className="object-cover"
+            // priority : c'est la plus grande image de la première page vue,
+            // donc l'élément qui décide du LCP. Sans lui, Next la charge en
+            // différé et le repère se déplace d'autant.
+            priority
           />
         </div>
+
+        <h1 className="text-4xl font-bold italic text-amber-700 drop-shadow-lg sm:text-5xl">
+          OM for EDC
+        </h1>
+        <p className="max-w-md text-blue-900/80">
+          Votre application de gestion des Ordres de Mission
+        </p>
       </div>
 
-      <div className="flex justify-center items-center gap-10">
-        <div
-          className="p-5 rounded-full bg-blue-300 hover:bg-blue-200 hover:scale-110 cursor-pointer shadow-xl shadow-blue-950/20 transition-all duration-300"
-          onClick={() => {
-            router.push("/om");
-          }}
-        >
-          Consulter les OM
-        </div>
-        <div
-          className="p-5 rounded-full bg-blue-700 hover:bg-blue-800 text-white hover:scale-110 cursor-pointer shadow-xl shadow-blue-950/20 transition-all duration-300"
-          onClick={() => {
-            router.push("/om/nouveau");
-          }}
-        >
-          Créer un OM
-        </div>
+      {/* `items-stretch` en colonne : sur téléphone les deux boutons prennent la
+          même largeur, ce qui évite l'escalier disgracieux de deux libellés de
+          longueurs différentes. */}
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+        <Link href="/om/nouveau" className={boutonPrimaire}>
+          <FilePlus2 size={TAILLE_ICONE} aria-hidden="true" />
+          Créer un ordre de mission
+        </Link>
+        <Link href="/om" className={boutonSecondaire}>
+          <List size={TAILLE_ICONE} aria-hidden="true" />
+          Consulter les ordres de mission
+        </Link>
       </div>
     </div>
   );

@@ -7,10 +7,16 @@ import Modal from "@/components/Modal";
 import { missionsParContinent, missionsParPaysDansContinent } from "@/lib/analytics";
 import type { Continent } from "@/lib/continents";
 import { titrePageClass, carteClass } from "@/lib/styles";
+import RetourVers from "@/components/RetourVers";
+import { useEstMonte } from "@/lib/useEstMonte";
 
 export default function CarteRapportPage() {
   const router = useRouter();
   const [continentOuvert, setContinentOuvert] = useState<Continent | null>(null);
+  // Garde-fou d'hydratation : les comptes dérivent de `mockOMs`, dont la valeur
+  // diffère entre serveur et client (cf. app/om/[id]/page.tsx). Ici l'écart
+  // toucherait aussi le REMPLISSAGE de la carte, pas seulement du texte.
+  const estMonte = useEstMonte();
 
   const comptesContinent = missionsParContinent();
   const comptesParContinent = Object.fromEntries(
@@ -26,6 +32,11 @@ export default function CarteRapportPage() {
 
   return (
     <div className="min-h-full w-full bg-blue-50 flex flex-col gap-8 p-10">
+      {/* Destination DÉCLARÉE, jamais déduite de l'URL : ces rapports
+          renvoient vers /om?filtre=… , donc un retour calculé sur le chemin
+          courant se tromperait. */}
+      <RetourVers href="/rapports" libelle="Retour aux rapports" />
+
       <h1 className={titrePageClass}>Missions par continent</h1>
 
       <div className={`${carteClass} max-w-5xl`}>
@@ -46,7 +57,7 @@ export default function CarteRapportPage() {
               {cle} — {count} mission{count > 1 ? "s" : ""}
             </button>
           ))}
-          {comptesContinent.length === 0 && (
+          {comptesContinent.length === 0 && estMonte && (
             <p className="text-gray-500">Aucune mission enregistrée pour l&apos;instant.</p>
           )}
         </div>

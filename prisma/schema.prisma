@@ -1,0 +1,755 @@
+// Schéma Prisma d'EDC-OM. Traduction du MLD de MODELE-DONNEES.md §6.
+//
+// ⚠️ PRISMA 7 : le générateur est `prisma-client` (et non `prisma-client-js`
+// comme en Prisma 6), il exige un `output` explicite, et l'URL de la base est
+// déclarée dans prisma.config.ts — pas ici.
+//
+// Le client est généré dans lib/generated/prisma, donc DANS le dépôt et non
+// plus dans node_modules : il faut l'ignorer côté git (cf. .gitignore).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Énumérations
+//
+// Critère de choix entre enum et table de référence (MODELE-DONNEES.md §4) :
+// est en enum ce qui est fermé, piloté par le code, sans attribut propre et
+// jamais édité par un utilisateur.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Cycle de vie d'un OM, côté participant (MODELE-DONNEES.md §7).
+/// REFUSE et EXPIRE remplacent la suppression, qui n'existe pas : le numéro
+/// d'un OM est émis dès sa création, donc l'enregistrement ne peut pas
+/// disparaître sans laisser un document orphelin sur papier.
+enum StatutParticipation {
+  EN_ATTENTE
+  CONFIRME
+  ANNULE
+  REFUSE /// écarté par l'admin AVANT confirmation, avec motif obligatoire
+  EXPIRE /// date de retour passée sans confirmation — posé automatiquement
+}
+
+/// « admin, simple user ou aucun » : AUCUN n'est pas une valeur ici, c'est
+/// l'absence de ligne dans Utilisateur.
+enum RoleUtilisateur {
+  ADMINISTRATEUR
+  UTILISATEUR
+}
+
+/// Découpage géographique des rapports. AUCUN rapport avec Zone, qui découpe
+/// le monde autrement pour le barème des frais — ne pas fusionner les deux.
+enum Continent {
+  AFRIQUE
+  AMERIQUE
+  ASIE
+  EUROPE
+  OCEANIE
+}
+
+/// Le sexe n'étant pas collecté, le libellé affiché porte l'accord entre
+/// parenthèses : « Marié(e) », « Divorcé(e) », « Veuf(ve) ».
+enum SituationFamille {
+  CELIBATAIRE
+  MARIE
+  DIVORCE
+  VEUF
+}
+
+/// Motif d'extinction d'une fiche employé.
+///
+/// Liste fermée, et l'ordre compte : les départs DÉFINITIFS d'abord, les
+/// suspensions ensuite. La distinction est celle qui pilote les règles — une
+/// suspension conserve un solde de congés, un départ définitif le clôt.
+///
+/// `AUTRE` existe parce qu'une liste fermée trop stricte pousse à ranger de
+/// force un cas réel dans une case fausse ; la note libre `note_sortie` en porte
+/// alors le détail.
+enum MotifSortie {
+  RETRAITE
+  DECES
+  DEMISSION
+  LICENCIEMENT
+  FIN_DE_CONTRAT
+  /// Départ vers une autre administration : la fiche peut revenir (art. 81-6).
+  DETACHEMENT
+  /// Suspension temporaire — congé sans solde, disponibilité.
+  SUSPENSION
+  AUTRE
+}
+
+enum NatureFrais {
+  PREVISIONNEL
+  REEL
+}
+
+/// Unité du droit à congé. Les deux coexistent et ne sont PAS convertibles :
+/// un cadre compte en jours calendaires (art. 81-4 du Statut du personnel),
+/// un non-cadre en jours ouvrables (art. 81-1).
+enum UniteConge {
+  OUVRABLE
+  CALENDAIRE
+}
+
+enum StatutDemande {
+  SOUMISE
+  VALIDEE
+  REFUSEE
+  ANNULEE
+}
+
+/// Provenance d'un jour férié. La saisie manuelle l'emporte toujours sur la
+/// synchronisation : aucune source publique ne fournit les fêtes musulmanes
+/// (vérifié le 20/08/2026), qui doivent donc être saisies à la main.
+enum OrigineFerie {
+  SAISIE_MANUELLE
+  SYNCHRONISE
+  CALCULE
+}
+
+enum TypeNotification {
+  OM_A_VALIDER
+  OM_CONFIRME
+  OM_ANNULE
+  OM_REFUSE
+  OM_EXPIRE
+  OM_EN_CONFLIT
+  CONGE_A_VALIDER
+  CONGE_VALIDE
+  CONGE_REFUSE
+  SOLDE_INSUFFISANT
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Référentiels
+// ═══════════════════════════════════════════════════════════════════════════
+
+model Departement {
+  code    String  @id @db.VarChar(10) /// 'DEX', 'DAG', 'DSI'…
+  libelle String  @db.VarChar(150)
+  actif   Boolean @default(true) /// désactiver sans casser l'historique
+
+  employes Employe[]
+
+  @@map("departement")
+}
+
+model Statut {
+  code    String @id @db.VarChar(40) /// 'SOUS_DIRECTEUR' — stable
+  libelle String @db.VarChar(150) /// 'Sous-directeur' — affiché
+  rang    Int    @unique @db.SmallInt /// 1 = plus élevé ; ordre de la pyramide
+
+  /// Art. 81-4 : les cadres ont 30 jours calendaires, sans les majorations
+  /// d'ancienneté ni de maternité. Arbitré le 19/08/2026 : est cadre tout
+  /// statut « Cadre ou hiérarchiquement au-dessus », soit les rangs 1 à 8.
+  ///
+  /// Colonne STOCKÉE et non dérivée de `rang` : si un statut était inséré au
+  /// rang 8, « Cadre » glisserait au rang 9 et perdrait silencieusement son
+  /// droit à 30 jours. Un booléen explicite ne peut pas régresser tout seul.
+  estCadre Boolean @default(false) @map("est_cadre")
+  actif    Boolean @default(true)
+
+  employes Employe[]
+  baremes  BaremeFraisFixe[]
+
+  @@map("statut")
+}
+
+/// 4 valeurs figées. En table et non en enum parce qu'elle porte un libellé
+/// affiché dans l'interface, ce qu'un enum PostgreSQL ne peut pas faire.
+/// La zone 0 n'est pas une zone : c'est le Cameroun, une mission nationale.
+model Zone {
+  code    Int    @id @db.SmallInt
+  libelle String @db.VarChar(200)
+
+  pays    Pays[]
+  baremes BaremeFraisFixe[]
+
+  @@map("zone")
+}
+
+/// En table et non calculée en code : la zone d'un pays est une DÉCISION RH,
+/// pas une donnée géographique. La figer en base évite qu'une mise à jour de
+/// librairie reclasse un pays et change une indemnité sans que personne ne le
+/// voie.
+model Pays {
+  codeIso   String    @id @map("code_iso") @db.Char(2) /// ISO 3166-1 alpha-2
+  nomFr     String    @map("nom_fr") @db.VarChar(100)
+  continent Continent
+  codeZone  Int       @map("code_zone") @db.SmallInt
+
+  zone     Zone            @relation(fields: [codeZone], references: [code])
+  missions OrdreMission[]
+
+  @@index([codeZone], map: "idx_pays_zone")
+  @@map("pays")
+}
+
+/// Barème de l'indemnité journalière : statut × zone. 40 lignes, figées
+/// (« montants appartenant au code de l'entreprise »). Aucun écran
+/// d'administration — seed uniquement, lecture seule depuis l'application.
+model BaremeFraisFixe {
+  codeStatut        String @map("code_statut") @db.VarChar(40)
+  codeZone          Int    @map("code_zone") @db.SmallInt
+  montantJournalier Int    @map("montant_journalier") /// FCFA
+
+  statut Statut @relation(fields: [codeStatut], references: [code])
+  zone   Zone   @relation(fields: [codeZone], references: [code])
+
+  @@id([codeStatut, codeZone])
+  @@map("bareme_frais_fixe")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Employés et comptes
+// ═══════════════════════════════════════════════════════════════════════════
+
+model Employe {
+  /// Clé naturelle venue de l'extérieur : l'employé est AJOUTÉ, pas créé.
+  matricule String @id @db.VarChar(20)
+
+  nom     String @db.VarChar(100)
+  prenoms String @db.VarChar(150)
+  /// Titre statutaire attaché à la PERSONNE, lié à l'indice. Champ libre : il
+  /// dépend du corps. Ne pas confondre avec statut ni fonction.
+  grade   String @db.VarChar(100)
+  /// Emploi précis dans l'organigramme (« SOUS-DIRECTEUR DU BUDGET ET DU
+  /// CONTRÔLE DE GESTION »). Texte libre, décidé le 19/08/2026 : ce n'est pas
+  /// une liste fermée. Le référentiel POSTES a été supprimé, son contenu
+  /// dupliquait STATUTS.
+  fonction String @db.VarChar(200)
+
+  situationFamille SituationFamille @map("situation_famille")
+  indice           String?          @db.VarChar(10)
+  dateNaissance    DateTime         @map("date_naissance") @db.Date /// règle de retraite
+  dateEmbauche     DateTime         @map("date_embauche") @db.Date /// base des congés
+
+  codeStatut       String @map("code_statut") @db.VarChar(40)
+  codeDepartement  String @map("code_departement") @db.VarChar(10)
+
+  /// Art. 81-5 : +1 jour de congé par Médaille d'Honneur du Travail.
+  nombreMedailles Int @default(0) @map("nombre_medailles") @db.SmallInt
+
+  /// Art. 81-6 : un fonctionnaire détaché garde au moins le droit à congé de
+  /// son administration d'origine.
+  estDetache        Boolean  @default(false) @map("est_detache")
+  joursCongeOrigine Decimal? @map("jours_conge_origine") @db.Decimal(5, 1)
+
+  actif       Boolean   @default(true)
+  /// Sert à invalider un OM créé APRÈS la désactivation de l'employé.
+  desactiveLe DateTime? @map("desactive_le") @db.Timestamptz(6)
+
+  /// Pourquoi la fiche est éteinte. **FACULTATIF** (décision du 21/08/2026) :
+  /// l'admin peut désactiver sans motiver, une désactivation urgente ne doit pas
+  /// être bloquée par un champ à remplir.
+  ///
+  /// Ajouté parce que `actif = false` ne disait rien : « en congé sans solde »,
+  /// « parti à la retraite » et « décédé » n'ont pas les mêmes suites — un décès
+  /// clôt un solde de congés, une retraite est prévisible, une démission peut se
+  /// retourner. Sans cette colonne, l'information est PERDUE et non simplement
+  /// absente : elle n'est pas retrouvable après coup.
+  motifSortie MotifSortie? @map("motif_sortie")
+  /// Précision libre — référence d'un acte, date d'effet réelle, circonstances.
+  noteSortie  String?      @map("note_sortie")
+
+  statut      Statut      @relation(fields: [codeStatut], references: [code])
+  departement Departement @relation(fields: [codeDepartement], references: [code])
+
+  utilisateur    Utilisateur?
+  participations Participation[]
+  soldes         SoldeConge[]
+  demandes       DemandeConge[]
+
+  @@index([nom], map: "idx_employe_nom")
+  @@index([codeStatut], map: "idx_employe_statut")
+  @@index([codeDepartement], map: "idx_employe_departement")
+  @@map("employe")
+}
+
+model Utilisateur {
+  id    BigInt @id @default(autoincrement())
+  email String @unique @db.VarChar(255)
+  /// Nul tant que l'employé n'a pas défini son mot de passe via le lien reçu
+  /// par courriel. Haché uniquement (argon2id ou bcrypt), jamais en clair.
+  motDePasseHash String? @map("mot_de_passe_hash")
+  role           RoleUtilisateur
+
+  /// Droit de créer et de révoquer d'AUTRES administrateurs.
+  ///
+  /// ── Pourquoi une colonne et non « le compte au plus petit identifiant » ────
+  ///
+  /// « Seul le premier administrateur » se lit naturellement comme `ORDER BY id
+  /// LIMIT 1`, mais ce raccourci a trois défauts concrets :
+  ///
+  ///   1. si ce compte est désactivé, PERSONNE ne peut plus créer
+  ///      d'administrateur — l'application se verrouille sans recours ;
+  ///   2. le droit n'est pas transmissible : un fondateur qui quitte l'EDC
+  ///      emporte la capacité avec lui ;
+  ///   3. l'identifiant est un détail de stockage. Y accrocher une règle
+  ///      d'autorisation rend le comportement dépendant de l'ordre d'insertion,
+  ///      donc invisible à la lecture du modèle.
+  ///
+  /// Une colonne explicite se lit, se transfère, et survit à une désactivation.
+  /// Elle n'est POSABLE que depuis `prisma/creerCompte.ts`, donc depuis un accès
+  /// serveur : aucun écran ne peut se l'attribuer, ce qui évite qu'un
+  /// administrateur ordinaire se promeuve lui-même.
+  estFondateur Boolean @default(false) @map("est_fondateur")
+
+  /// Un compte PEUT correspondre à un employé — un compte technique
+  /// d'administration peut n'être rattaché à personne.
+  matricule String? @unique @db.VarChar(20)
+
+  actif             Boolean   @default(true)
+  creeLe            DateTime  @default(now()) @map("cree_le") @db.Timestamptz(6)
+  derniereConnexion DateTime? @map("derniere_connexion") @db.Timestamptz(6)
+
+  employe Employe? @relation(fields: [matricule], references: [matricule])
+
+  jetons              JetonMotDePasse[]
+  sessions            SessionRenouvellement[]
+  plagesNumero        PlageNumero[]
+  missionsCreees      OrdreMission[]
+  participationsConfirmees Participation[] @relation("confirmePar")
+  participationsAnnulees   Participation[] @relation("annulePar")
+  participationsRefusees   Participation[] @relation("refusePar")
+  demandesValidees    DemandeConge[]
+  soldesMajores       SoldeConge[]    @relation("majorationPar")
+  soldesReportes      SoldeConge[]    @relation("reportAutorisePar")
+  feriesSaisis        JourFerie[]
+  notifications       Notification[]
+  configurations      Configuration[]
+
+  @@map("utilisateur")
+}
+
+model JetonMotDePasse {
+  /// On stocke le HACHÉ du jeton, jamais le jeton lui-même : une fuite de la
+  /// base ne doit pas permettre de prendre la main sur un compte.
+  jetonHash     String    @id @map("jeton_hash")
+  idUtilisateur BigInt    @map("id_utilisateur")
+  expireLe      DateTime  @map("expire_le") @db.Timestamptz(6)
+  utiliseLe     DateTime? @map("utilise_le") @db.Timestamptz(6) /// usage unique
+
+  utilisateur Utilisateur @relation(fields: [idUtilisateur], references: [id], onDelete: Cascade)
+
+  @@map("jeton_mot_de_passe")
+}
+
+/// Session de renouvellement (« refresh token »).
+///
+/// Stratégie retenue : un jeton d'ACCÈS signé de courte durée (15 min) vit dans
+/// un cookie et n'est pas stocké ; ce jeton de RENOUVELLEMENT, lui, est en base
+/// et dure 30 jours. C'est ce qui rend la révocation possible : désactiver un
+/// compte invalide le renouvellement, donc l'accès tombe au plus tard 15 minutes
+/// plus tard. Une session purement sans état serait irrévocable.
+///
+/// Hors ligne, le jeton d'accès en cours reste valable et le Service Worker sert
+/// le cache — le renouvellement ne se fait qu'au retour du réseau.
+model SessionRenouvellement {
+  /// Haché (SHA-256), jamais le jeton en clair : une fuite de la base ne doit
+  /// pas permettre d'usurper une session en cours.
+  jetonHash     String @id @map("jeton_hash")
+  idUtilisateur BigInt @map("id_utilisateur")
+
+  expireLe       DateTime  @map("expire_le") @db.Timestamptz(6)
+  creeLe         DateTime  @default(now()) @map("cree_le") @db.Timestamptz(6)
+  dernierUsageLe DateTime? @map("dernier_usage_le") @db.Timestamptz(6)
+  /// Révocation explicite : déconnexion, ou désactivation du compte.
+  revoqueeLe     DateTime? @map("revoquee_le") @db.Timestamptz(6)
+
+  /// Pour qu'un utilisateur puisse reconnaître ses sessions actives, et pour
+  /// qu'une connexion depuis un poste inhabituel soit repérable.
+  agentUtilisateur String? @map("agent_utilisateur") @db.VarChar(300)
+  adresseIp        String? @map("adresse_ip") @db.Inet
+
+  utilisateur Utilisateur @relation(fields: [idUtilisateur], references: [id], onDelete: Cascade)
+
+  @@index([idUtilisateur], map: "idx_session_utilisateur")
+  @@map("session_renouvellement")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Ordres de mission
+// ═══════════════════════════════════════════════════════════════════════════
+
+model OrdreMission {
+  id BigInt @id @default(autoincrement())
+
+  /// ULID généré par le NAVIGATEUR à la création, y compris hors ligne. Clé
+  /// d'idempotence : un renvoi après coupure réseau ne crée pas de doublon.
+  ulid String @unique @db.Char(26)
+
+  codePays         String  @map("code_pays") @db.Char(2)
+  villeDestination String  @map("ville_destination") @db.VarChar(120)
+  viaPassage       String? @map("via_passage") @db.VarChar(200)
+  motif            String
+  financement      String? @db.VarChar(150)
+  moyenTransport   String? @map("moyen_transport") @db.VarChar(100)
+
+  dateDepart DateTime @map("date_depart") @db.Date
+  dateRetour DateTime @map("date_retour") @db.Date
+
+  /// Imputation budgétaire (MODELE-DONNEES.md §5) : nomenclature budgétaire
+  /// publique camerounaise, imprimée dans l'en-tête du document. Champs libres
+  /// pour l'instant ; référentiel possible après validation DFCC.
+  chapitre      String? @db.VarChar(50)
+  article       String? @db.VarChar(50)
+  paragraphe    String? @db.VarChar(50)
+  exercice      String? @db.VarChar(50)
+  exerciceAnnee Int?    @map("exercice_annee") @db.SmallInt
+
+  creePar BigInt @map("cree_par")
+  /// Date de création LOCALE, telle que vue par le poste émetteur : elle peut
+  /// précéder la synchronisation de plusieurs jours. Pas de @default(now()),
+  /// qui donnerait l'heure du serveur au moment de la réception.
+  creeLe         DateTime  @map("cree_le") @db.Timestamptz(6)
+  synchroniseLe  DateTime? @map("synchronise_le") @db.Timestamptz(6)
+
+  pays    Pays        @relation(fields: [codePays], references: [codeIso])
+  createur Utilisateur @relation(fields: [creePar], references: [id])
+
+  participations Participation[]
+
+  @@index([dateDepart], map: "idx_om_date_depart")
+  @@index([codePays], map: "idx_om_pays")
+  @@map("ordre_mission")
+}
+
+/// Plages de numéros réservées par poste, pour la création hors ligne
+/// (MODELE-DONNEES.md §7). Le poste réserve un lot quand il est connecté, puis
+/// y puise hors ligne : le numéro est ainsi DÉFINITIF dès la création, donc
+/// imprimable et signable immédiatement.
+///
+/// ⚠️ La contrainte qui garantit l'absence de recouvrement est un
+/// `EXCLUDE USING gist`, que Prisma ne sait pas exprimer. Elle est ajoutée à la
+/// main dans la migration — voir prisma/migrations/*/migration.sql.
+model PlageNumero {
+  id             BigInt   @id @default(autoincrement())
+  annee          Int      @db.SmallInt
+  idUtilisateur  BigInt   @map("id_utilisateur")
+  borneMin       Int      @map("borne_min")
+  borneMax       Int      @map("borne_max")
+  /// Curseur : avance à mesure que le poste consomme sa réserve.
+  prochainNumero Int      @map("prochain_numero")
+  reserveeLe     DateTime @default(now()) @map("reservee_le") @db.Timestamptz(6)
+
+  utilisateur Utilisateur @relation(fields: [idUtilisateur], references: [id])
+
+  @@index([annee, idUtilisateur], map: "idx_plage_annee_utilisateur")
+  @@map("plage_numero")
+}
+
+/// Le cœur du modèle : une mission concerne N employés, chacun recevant SON
+/// document (numéro distinct, statut propre).
+///
+/// C'est cette table qui porte `statut`, et non OrdreMission — c'est ce qui
+/// permet de bloquer la validation PAR PARTICIPANT : sur une mission de cinq
+/// personnes dont une est en conflit de dates, les quatre autres restent
+/// validables.
+model Participation {
+  idOrdreMission BigInt @map("id_ordre_mission")
+  matricule      String @db.VarChar(20)
+
+  numeroOM String              @unique @map("numero_om") @db.VarChar(40) /// '0042/OM/EDC/DG/2026'
+  statut   StatutParticipation @default(EN_ATTENTE)
+
+  /// Blocage de validation (MODELE-DONNEES.md §1). Renseignés par le serveur
+  /// quand un conflit est détecté : l'OM reste consultable et imprimable, mais
+  /// non validable. Doit être détecté AVANT que le document parte à la
+  /// signature du DG.
+  blocageMotif      String?   @map("blocage_motif")
+  blocageDetecteLe  DateTime? @map("blocage_detecte_le") @db.Timestamptz(6)
+
+  // ── Instantané de la situation de l'employé À L'ÉMISSION ─────────────────
+  // Ce n'est pas une dénormalisation de performance mais une EXIGENCE
+  // FONCTIONNELLE : un OM est une pièce datée. Si un agent passe de « Chef de
+  // Bureau » à « Directeur » en novembre, l'OM émis en mars doit continuer
+  // d'afficher « Chef de Bureau ». Une jointure vers Employe afficherait la
+  // situation d'aujourd'hui et falsifierait un document signé.
+  nomS               String           @map("nom_s") @db.VarChar(100)
+  prenomsS           String           @map("prenoms_s") @db.VarChar(150)
+  gradeS             String           @map("grade_s") @db.VarChar(100)
+  fonctionS          String           @map("fonction_s") @db.VarChar(200)
+  codeStatutS        String           @map("code_statut_s") @db.VarChar(40)
+  codeDepartementS   String           @map("code_departement_s") @db.VarChar(10)
+  situationFamilleS  SituationFamille @map("situation_famille_s")
+  indiceS            String?          @map("indice_s") @db.VarChar(10)
+  /// Calculé à la création (statut × zone de destination), jamais recalculé.
+  montantFraisFixeJournalier Int? @map("montant_frais_fixe_journalier")
+
+  // ── Émission : toujours le DG, mais figé ici par sécurité ────────────────
+  nomEmetteur      String   @map("nom_emetteur") @db.VarChar(100)
+  gradeEmetteur    String?  @map("grade_emetteur") @db.VarChar(100)
+  fonctionEmetteur String   @map("fonction_emetteur") @db.VarChar(150)
+  lieuEmission     String   @map("lieu_emission") @db.VarChar(100)
+  dateEmission     DateTime @map("date_emission") @db.Date
+
+  // ── Validation tracée : c'est la « signature électronique » retenue ──────
+  // La signature qui fait foi est MANUSCRITE, sur le papier. Confirmer, c'est
+  // enregistrer que le papier est signé — d'où la trace de qui, quand, d'où.
+  confirmeLe       DateTime? @map("confirme_le") @db.Timestamptz(6)
+  confirmePar      BigInt?   @map("confirme_par")
+  confirmeDepuisIp String?   @map("confirme_depuis_ip") @db.Inet
+
+  annuleLe       DateTime? @map("annule_le") @db.Timestamptz(6)
+  annulePar      BigInt?   @map("annule_par")
+  annuleDepuisIp String?   @map("annule_depuis_ip") @db.Inet
+
+  /// Refus par l'admin AVANT confirmation : remplace la suppression. Le motif
+  /// est obligatoire — c'est ce qui distingue un refus d'un effacement.
+  refuseLe       DateTime? @map("refuse_le") @db.Timestamptz(6)
+  refusePar      BigInt?   @map("refuse_par")
+  refuseDepuisIp String?   @map("refuse_depuis_ip") @db.Inet
+  refuseMotif    String?   @map("refuse_motif")
+
+  /// Péremption automatique : date de retour passée sans confirmation.
+  expireLe DateTime? @map("expire_le") @db.Timestamptz(6)
+
+  ordreMission OrdreMission @relation(fields: [idOrdreMission], references: [id])
+  employe      Employe      @relation(fields: [matricule], references: [matricule])
+  confirmateur Utilisateur? @relation("confirmePar", fields: [confirmePar], references: [id])
+  annulateur   Utilisateur? @relation("annulePar", fields: [annulePar], references: [id])
+  refuseur     Utilisateur? @relation("refusePar", fields: [refusePar], references: [id])
+
+  frais Frais[]
+
+  /// Garantit qu'un employé ne figure qu'une seule fois par mission — règle
+  /// aujourd'hui non vérifiée par le code.
+  @@id([idOrdreMission, matricule])
+  @@index([matricule], map: "idx_part_matricule")
+  @@index([codeStatutS], map: "idx_part_statut_s") /// pyramide
+  @@map("participation")
+}
+
+/// Table conservée mais AUCUN rapport n'en dépend : la saisie des frais réels
+/// ne se fera pas en pratique (« vu comme les humains sont paresseux »). Seule
+/// l'indemnité journalière, calculée automatiquement, alimente les rapports.
+model Frais {
+  id             BigInt      @id @default(autoincrement())
+  idOrdreMission BigInt      @map("id_ordre_mission")
+  matricule      String      @db.VarChar(20)
+  nature         NatureFrais
+  typeDepense    String      @map("type_depense") @db.VarChar(60)
+  montant        Int
+  description    String?
+  saisiLe        DateTime    @default(now()) @map("saisi_le") @db.Timestamptz(6)
+
+  participation Participation @relation(fields: [idOrdreMission, matricule], references: [idOrdreMission, matricule], onDelete: Cascade)
+
+  @@index([idOrdreMission, matricule], map: "idx_frais_participation")
+  @@map("frais")
+}
+
+// COMMENTÉ (20/08/2026) — EtapeVisa retirée : le tableau VISAS du verso est
+// renseigné à la main, hors application. Le verso est imprimé VIERGE, avec ses
+// cases présentes mais vides (lignesVisasVierges() dans lib/buildDocument.ts).
+//
+// Si la saisie du verso revenait au périmètre, il faudrait d'abord trancher :
+// l'itinéraire est-il partagé par la mission (comme le modélisait le code) ou
+// propre à chaque voyageur (comme sur le papier, où chaque étape est visée et
+// cachetée individuellement) ?
+//
+// model EtapeVisa {
+//   idOrdreMission BigInt    @map("id_ordre_mission")
+//   ordre          Int       @db.SmallInt
+//   departDe       String?   @map("depart_de") @db.VarChar(120)
+//   departLe       DateTime? @map("depart_le") @db.Date
+//   departHeure    DateTime? @map("depart_heure") @db.Time(6)
+//   arriveeA       String?   @map("arrivee_a") @db.VarChar(120)
+//   arriveeLe      DateTime? @map("arrivee_le") @db.Date
+//   arriveeHeure   DateTime? @map("arrivee_heure") @db.Time(6)
+//   @@id([idOrdreMission, ordre])
+//   @@map("etape_visa")
+// }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Congés — Statut du personnel EDC, chapitre III, articles 80 à 82
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Types décidés par la DRH. La liste exacte reste À VALIDER RH.
+model TypeConge {
+  code    String  @id @db.VarChar(30) /// 'ANNUEL', 'SANS_SOLDE', 'MATERNITE'…
+  libelle String  @db.VarChar(150)
+  /// Ce type ampute-t-il le solde annuel ?
+  decompteSolde Boolean @map("decompte_solde")
+  actif         Boolean @default(true)
+
+  demandes DemandeConge[]
+
+  @@map("type_conge")
+}
+
+/// Nécessaire au décompte des jours ouvrables.
+///
+/// ⚠️ VÉRIFIÉ le 20/08/2026 : aucune source publique ne suffit. L'API la plus
+/// courante ne renvoie que 8 fériés pour le Cameroun et AUCUNE fête musulmane
+/// (ni Aïd el-Fitr, ni Aïd el-Kébir), pourtant fériées. La saisie manuelle
+/// l'emporte donc toujours sur la synchronisation.
+model JourFerie {
+  dateFerie DateTime     @id @map("date_ferie") @db.Date
+  libelle   String       @db.VarChar(150)
+  origine   OrigineFerie
+  /// Vrai pour les fêtes lunaires : la date bouge d'une année sur l'autre et
+  /// mérite une vérification annuelle.
+  estMobile Boolean @default(false) @map("est_mobile")
+
+  synchroniseLe DateTime? @map("synchronise_le") @db.Timestamptz(6)
+  saisiPar      BigInt?   @map("saisi_par")
+
+  saisisseur Utilisateur? @relation(fields: [saisiPar], references: [id])
+
+  @@map("jour_ferie")
+}
+
+/// Trace des synchronisations de fériés, et surtout à partir de quelle date les
+/// soldes doivent être recalculés.
+///
+/// ⚠️ Le recalcul ne concerne que les NON-CADRES : les cadres comptent en jours
+/// calendaires, donc un férié tombant pendant leur congé ne leur rend rien.
+model SynchronisationFerie {
+  id                   BigInt    @id @default(autoincrement())
+  annee                Int       @db.SmallInt
+  source               String    @db.VarChar(100)
+  nombreImportes       Int       @map("nombre_importes") @db.SmallInt
+  /// Fériés protégés parce que saisis à la main : on ne les écrase jamais.
+  nombreIgnoresManuels Int       @map("nombre_ignores_manuels") @db.SmallInt
+  recalculRequisDepuis DateTime? @map("recalcul_requis_depuis") @db.Date
+  executeLe            DateTime  @default(now()) @map("execute_le") @db.Timestamptz(6)
+
+  @@map("synchronisation_ferie")
+}
+
+model SoldeConge {
+  matricule String @db.VarChar(20)
+  annee     Int    @db.SmallInt
+
+  /// Unité OBLIGATOIRE : un nombre de jours sans son unité est inexploitable,
+  /// les jours ouvrables et calendaires n'étant pas convertibles.
+  unite       UniteConge
+  joursAcquis Decimal    @map("jours_acquis") @db.Decimal(5, 1)
+  joursPris   Decimal    @default(0) @map("jours_pris") @db.Decimal(5, 1)
+
+  /// Art. 81-3 et 81-6 : majorations dont le droit vient de l'extérieur
+  /// (maternité déclarée, administration d'origine). Saisie tracée plutôt que
+  /// calculée — le sexe et le nombre d'enfants ne sont pas collectés sur la
+  /// fiche employé, ils sont déclarés dans le formulaire de demande.
+  majorationManuelle Decimal @default(0) @map("majoration_manuelle") @db.Decimal(5, 1)
+  majorationMotif    String? @map("majoration_motif")
+  majorationPar      BigInt? @map("majoration_par")
+
+  /// Art. 80-1 : report d'un an maximum, sur autorisation EXPRESSE du DG.
+  joursReportes     Decimal   @default(0) @map("jours_reportes") @db.Decimal(5, 1)
+  reportAutorisePar BigInt?   @map("report_autorise_par")
+  reportAutoriseLe  DateTime? @map("report_autorise_le") @db.Timestamptz(6)
+
+  /// Art. 80-3 : prescription à 3 ans.
+  prescritLe DateTime? @map("prescrit_le") @db.Date
+
+  employe   Employe      @relation(fields: [matricule], references: [matricule])
+  majorateur Utilisateur? @relation("majorationPar", fields: [majorationPar], references: [id])
+  autorisateur Utilisateur? @relation("reportAutorisePar", fields: [reportAutorisePar], references: [id])
+
+  @@id([matricule, annee])
+  @@map("solde_conge")
+}
+
+model DemandeConge {
+  /// ULID généré par le NAVIGATEUR : la demande peut être créée hors ligne, et
+  /// un renvoi après coupure ne doit pas produire de doublon.
+  id String @id @db.Char(26)
+
+  matricule String @db.VarChar(20)
+  codeType  String @map("code_type") @db.VarChar(30)
+
+  dateDebut DateTime @map("date_debut") @db.Date
+  dateFin   DateTime @map("date_fin") @db.Date
+  /// Calculé selon l'unité de l'employé, jours fériés déduits pour les
+  /// ouvrables. Instantané : une correction de férié n'altère pas une demande
+  /// déjà validée, elle n'ajuste que le solde.
+  nombreJours Decimal    @map("nombre_jours") @db.Decimal(5, 1)
+  unite       UniteConge
+
+  motif  String?
+  statut StatutDemande @default(SOUMISE)
+
+  /// Date LOCALE de soumission, pas celle de réception par le serveur.
+  soumiseLe     DateTime  @map("soumise_le") @db.Timestamptz(6)
+  synchroniseLe DateTime? @map("synchronise_le") @db.Timestamptz(6)
+
+  /// La validation exige que l'admin soit EN LIGNE.
+  validePar      BigInt?   @map("valide_par")
+  valideLe       DateTime? @map("valide_le") @db.Timestamptz(6)
+  valideDepuisIp String?   @map("valide_depuis_ip") @db.Inet
+  motifRefus     String?   @map("motif_refus")
+
+  employe   Employe      @relation(fields: [matricule], references: [matricule])
+  typeConge TypeConge    @relation(fields: [codeType], references: [code])
+  validateur Utilisateur? @relation(fields: [validePar], references: [id])
+
+  @@index([matricule, dateDebut], map: "idx_demande_matricule")
+  @@map("demande_conge")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Notifications
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Une notification est une LIGNE EN BASE, pas un état d'interface : sinon un
+/// rechargement de page ferait disparaître l'information.
+model Notification {
+  id             BigInt           @id @default(autoincrement())
+  idDestinataire BigInt           @map("id_destinataire")
+  type           TypeNotification
+  message        String
+  lien           String?          @db.VarChar(300) /// route interne à ouvrir au clic
+  luLe           DateTime?        @map("lu_le") @db.Timestamptz(6)
+  creeLe         DateTime         @default(now()) @map("cree_le") @db.Timestamptz(6)
+
+  destinataire Utilisateur @relation(fields: [idDestinataire], references: [id], onDelete: Cascade)
+
+  @@index([idDestinataire, creeLe], map: "idx_notif_destinataire")
+  @@map("notification")
+}
+
+/// File des courriels à envoyer. Un mail déclenché hors ligne part À LA
+/// RECONNEXION, émis par le SERVEUR — jamais par le navigateur.
+model MailEnAttente {
+  id             BigInt    @id @default(autoincrement())
+  destinataire   String    @db.VarChar(255)
+  sujet          String    @db.VarChar(300)
+  corps          String
+  creeLe         DateTime  @default(now()) @map("cree_le") @db.Timestamptz(6)
+  envoyeLe       DateTime? @map("envoye_le") @db.Timestamptz(6)
+  tentatives     Int       @default(0) @db.SmallInt
+  derniereErreur String?   @map("derniere_erreur")
+
+  @@map("mail_en_attente")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Configuration : UNE seule ligne
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Colonnes typées et non table clé/valeur : une table `parametre(cle, valeur)`
+/// perdrait le type et rendrait la borne 50–75 invérifiable en base.
+/// Le verrou « une seule ligne » est un CHECK (id = 1), ajouté dans la
+/// migration — Prisma ne sait pas l'exprimer.
+model Configuration {
+  id           Int @id @default(1) @db.SmallInt
+  ageRetraite  Int @map("age_retraite") @db.SmallInt
+  /// Taille des plages de numéros réservées par poste.
+  taillePlageNumero Int @default(50) @map("taille_plage_numero") @db.SmallInt
+
+  modifieLe  DateTime @default(now()) @map("modifie_le") @db.Timestamptz(6)
+  modifiePar BigInt?  @map("modifie_par")
+
+  modificateur Utilisateur? @relation(fields: [modifiePar], references: [id])
+
+  @@map("configuration")
+}

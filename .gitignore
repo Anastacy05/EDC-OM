@@ -16,6 +16,9 @@
 # next.js
 /.next/
 /out/
+# Sortie des tests de bout en bout : ils compilent à part pour ne pas piétiner le
+# .next de travail (un build et un `next dev` simultanés cassent les polices).
+/.next-test/
 
 # production
 /build
@@ -32,6 +35,11 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...sauf le modèle, qui DOIT être suivi : c'est lui qui documente les variables
+# à renseigner. `.env*` l'excluait aussi, ce qui aurait laissé un nouveau venu
+# sans aucune indication sur la configuration attendue. Il ne contient jamais de
+# vraie valeur secrète.
+!.env.example
 
 # vercel
 .vercel
@@ -39,3 +47,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Client Prisma généré. En Prisma 7, il est écrit DANS le dépôt
+# (lib/generated/prisma) et non plus dans node_modules : c'est du code produit,
+# régénéré par `prisma generate`, donc il n'a pas à être suivi.
+/lib/generated/

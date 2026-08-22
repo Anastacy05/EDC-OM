@@ -2,7 +2,7 @@
 
 import { type CSSProperties } from "react";
 import { formatDateFR, formatHeureFR } from "@/lib/dateUtils";
-import type { OrdreMissionDocument } from "@/types/om";
+import type { OrdreMissionDocument, VisaLeg } from "@/types/om";
 
 /**
  * Aperçu fac-similé de l'Ordre de Mission — reproduit visuellement les 2 pages
@@ -106,7 +106,24 @@ interface OMPreviewProps {
 }
 
 export default function OMPreview({ om = sampleOM }: OMPreviewProps) {
-  const visas = om.visas || [];
+  // (20/08/2026) Les étapes VISA ne sont plus gérées par l'application, mais le
+  // tableau doit rester imprimé VIERGE pour le remplissage à la main. Le .docx
+  // reçoit 3 lignes vides via lignesVisasVierges() (lib/buildDocument.ts) ; on
+  // affiche donc le même nombre ici, sinon l'aperçu écran montrerait zéro ligne
+  // là où le document imprimé en a trois — l'aperçu ne serait plus un
+  // fac-similé fidèle, ce qui est sa seule raison d'être.
+  const NB_LIGNES_VISAS = 3;
+  const visas: VisaLeg[] =
+    om.visas && om.visas.length > 0
+      ? om.visas
+      : Array.from({ length: NB_LIGNES_VISAS }, () => ({
+          departDe: "",
+          departLe: "",
+          departHeure: "",
+          arriveeA: "",
+          arriveeLe: "",
+          arriveeHeure: "",
+        }));
 
   return (
     <div className="wrapper">
@@ -340,7 +357,7 @@ export default function OMPreview({ om = sampleOM }: OMPreviewProps) {
                 <i>On departure</i>
               </td>
               <td colSpan={4} className="center small">
-                A L'ARRIVEE
+                A L&apos;ARRIVEE
                 <br />
                 <i>On arrival</i>
               </td>
@@ -379,8 +396,8 @@ export default function OMPreview({ om = sampleOM }: OMPreviewProps) {
 
             <tr>
               <td colSpan={10} className="locked-banner">
-                REGLEMENT DEFINITIF – rempli manuellement par l'agent au retour de mission (non géré
-                par l'application)
+                REGLEMENT DEFINITIF – rempli manuellement par l&apos;agent au retour de mission (non géré
+                par l&apos;application)
               </td>
             </tr>
             <tr>

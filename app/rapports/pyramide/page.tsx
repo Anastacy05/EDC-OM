@@ -6,14 +6,18 @@ import Modal from "@/components/Modal";
 import { participantsParStatut, participantsParEmployeDansStatut } from "@/lib/analytics";
 import { STATUTS } from "@/lib/referentiels";
 import { titrePageClass, carteClass } from "@/lib/styles";
+import RetourVers from "@/components/RetourVers";
+import { useEstMonte } from "@/lib/useEstMonte";
 
 export default function PyramideRapportPage() {
   const router = useRouter();
   const [statutOuvert, setStatutOuvert] = useState<string | null>(null);
+  // Garde-fou d'hydratation : les comptes dérivent de `mockOMs`, dont la valeur
+  // diffère entre serveur et client (cf. app/om/[id]/page.tsx).
+  const estMonte = useEstMonte();
 
   const comptesBruts = participantsParStatut();
   const compteParStatut = new Map(comptesBruts.map((c) => [c.cle, c.count]));
-  const maxCompte = Math.max(1, ...comptesBruts.map((c) => c.count));
 
   // Ordre de la pyramide = ordre du référentiel (déjà du plus élevé au plus
   // bas dans la hiérarchie) — pas l'ordre des comptes, pour garder la forme
@@ -31,6 +35,11 @@ export default function PyramideRapportPage() {
 
   return (
     <div className="min-h-full w-full bg-blue-50 flex flex-col gap-8 p-10">
+      {/* Destination DÉCLARÉE, jamais déduite de l'URL : ces rapports
+          renvoient vers /om?filtre=… , donc un retour calculé sur le chemin
+          courant se tromperait. */}
+      <RetourVers href="/rapports" libelle="Retour aux rapports" />
+
       <h1 className={titrePageClass}>Missions par statut</h1>
 
       <div className={`${carteClass} max-w-3xl`}>
@@ -39,23 +48,29 @@ export default function PyramideRapportPage() {
         </p>
 
         <div className="flex flex-col items-center gap-1">
-          {niveaux.map(({ statut, count, index }) => {
-            const largeurPct = (index+1)/niveaux.length()*100;
-            return (
-              <button
-                key={statut}
-                onClick={() => count > 0 && setStatutOuvert(statut)}
-                disabled={count === 0}
-                style={{ width: `${largeurPct}%` }}
-                className="flex items-center justify-between gap-3 px-4 py-2 rounded-lg
-                           bg-blue-400 hover:bg-amber-500 disabled:bg-gray-200 disabled:cursor-default
-                           text-white disabled:text-gray-500 text-sm transition-colors"
-              >
-                <span className="truncate">{statut}</span>
-                <span className="font-medium shrink-0">{count}</span>
-              </button>
-            );
-          })}
+          {!estMonte ? (
+            <p className="text-gray-500 text-sm self-start">Chargement des données…</p>
+          ) : (
+            niveaux.map(({ statut, count }, index) => {
+              // Largeur = rang hiérarchique, pas nombre de missions : la forme
+              // en pyramide doit rester lisible même si un niveau est à 0.
+              const largeurPct = ((index + 1) / niveaux.length) * 100;
+              return (
+                <button
+                  key={statut}
+                  onClick={() => count > 0 && setStatutOuvert(statut)}
+                  disabled={count === 0}
+                  style={{ width: `${largeurPct}%` }}
+                  className="flex items-center justify-between gap-3 px-4 py-2 rounded-lg
+                             bg-blue-600 hover:bg-amber-700 disabled:bg-gray-200 disabled:cursor-default
+                             text-white disabled:text-gray-600 text-sm transition-colors"
+                >
+                  <span className="truncate">{statut}</span>
+                  <span className="font-medium shrink-0">{count}</span>
+                </button>
+              );
+            })
+          )}
         </div>
       </div>
 
@@ -70,7 +85,7 @@ export default function PyramideRapportPage() {
               >
                 <span>
                   {e.nom} {e.prenoms}
-                  <span className="text-gray-400 ml-2">{e.matricule}</span>
+                  <span className="text-gray-500 ml-2">{e.matricule}</span>
                 </span>
                 <span className="text-blue-700 font-medium">
                   {e.count} mission{e.count > 1 ? "s" : ""}
