@@ -27,7 +27,7 @@ import MenuUtilisateur from "@/components/MenuUtilisateur";
  *
  * D'où ce composant séparé, que `Header` enveloppe dans `<Suspense>`.
  *
- * ⚠️ Le filtrage par rôle est du CONFORT. La sécurité est dans
+ * Le filtrage par rôle est du CONFORT. La sécurité est dans
  * `app/parametres/layout.tsx`, `app/rapports/layout.tsx` et les gardes du DAL.
  * Vérifié : une session UTILISATEUR qui tape /rapports reçoit
  * `307 → /?acces=refuse`.

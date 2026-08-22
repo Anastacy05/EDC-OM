@@ -1,9 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-// COMMENTÉ (21/08/2026) — plus aucun <Link> dans ce fichier : le seul lien
-// (« Consulter les ordres ») est devenu <RetourVers>, qui l'encapsule.
-// import Link from "next/link";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { addMockOM, genererProchainNumeroOM } from "@/lib/mockData";
 import { mockEmployees, findEmployeeByMatricule } from "@/lib/employees";
@@ -103,15 +101,10 @@ export default function NouvelOMPage() {
   const [nomSaisi, setNomSaisi] = useState("");
   const [erreurAjout, setErreurAjout] = useState("");
 
-  // Signale qu'un brouillon est en cours dès qu'un participant est ajouté.
-  //
-  // MIS À JOUR (21/08/2026) — le destinataire n'est plus le bouton du header
-  // (supprimé) mais `<RetourVers protegerBrouillon>` en haut de cette page.
-  //
-  // ⚠️ La protection ne couvre QUE ce lien. Un onglet du header cliqué depuis
-  // ici emporte toujours la saisie sans rien demander : l'App Router de Next
-  // n'expose pas de blocage de navigation. Sans objet à l'étape 8, où le
-  // brouillon sera persisté.
+  // Signale au BackButton du header qu'il y a un brouillon en cours dès
+  // qu'un participant est ajouté — "Annuler" (dans la page) préserve déjà ce
+  // travail, mais rien n'empêchait avant de le perdre en quittant par le
+  // bouton retour du header, qui ignore l'état de cette page.
   useEffect(() => {
     if (participants.length > 0) signalerBrouillon();
     else effacerBrouillon();

@@ -105,11 +105,11 @@ async function principal() {
       // Compte déjà là : on n'échoue pas, on réémet une invitation. C'est le
       // cas courant d'un mot de passe oublié, et le seul moyen d'en émettre une
       // tant que l'écran d'administration du personnel n'existe pas.
-      console.log(`\n  ℹ Le compte ${email} existe déjà — émission d'un nouveau lien.`);
+      console.log(`\n Le compte ${email} existe déjà — émission d'un nouveau lien.`);
       idUtilisateur = existant.id;
       if (!existant.actif) {
         await prisma.utilisateur.update({ where: { id: existant.id }, data: { actif: true } });
-        console.log("  ℹ Compte réactivé.");
+        console.log(" Compte réactivé.");
       }
     } else {
       const cree = await prisma.utilisateur.create({
@@ -117,7 +117,7 @@ async function principal() {
         select: { id: true },
       });
       idUtilisateur = cree.id;
-      console.log(`\n  ✔ Compte créé : ${email} (${role}${matricule ? `, matricule ${matricule}` : ""})`);
+      console.log(`\n Compte créé : ${email} (${role}${matricule ? `, matricule ${matricule}` : ""})`);
     }
 
     // ── Transfert de la capacité de fondateur ──────────────────────────────
@@ -148,11 +148,11 @@ async function principal() {
       ]);
 
       if (ancien) {
-        console.log(`\n  ⚠️ Capacité de fondateur TRANSFÉRÉE depuis ${ancien.email}.`);
+        console.log(`\n  Capacité de fondateur TRANSFÉRÉE depuis ${ancien.email}.`);
         console.log("     Ce compte reste administrateur, mais ne peut plus créer ni");
         console.log("     révoquer d'administrateur.");
       } else {
-        console.log("\n  ✔ Compte fondateur. Il est le seul à pouvoir créer et révoquer");
+        console.log("\n  Compte fondateur. Il est le seul à pouvoir créer et révoquer");
         console.log("    des administrateurs depuis l'écran.");
       }
     }
@@ -183,7 +183,7 @@ async function principal() {
     console.log("  Lien de définition du mot de passe (valable 48 h, usage unique)");
     console.log("  ─────────────────────────────────────────────────────────────");
     console.log(`\n  ${base}/mot-de-passe/${encodeURIComponent(jeton)}\n`);
-    console.log("  ⚠️ Ce lien vaut le mot de passe : le transmettre par un canal");
+    console.log("     Ce lien vaut le mot de passe : le transmettre par un canal");
     console.log("     sûr, et ne pas le laisser dans un historique de terminal.");
     console.log("     Il n'est pas récupérable — relancer ce script pour en obtenir");
     console.log("     un nouveau.\n");

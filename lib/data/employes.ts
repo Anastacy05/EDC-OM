@@ -4,7 +4,6 @@ import { cache } from "react";
 import { prisma } from "@/lib/data/client";
 import { exigerAdministrateur, exigerSession, peutAccederAuMatricule } from "@/lib/auth/garde";
 import type { EmployeValide } from "@/lib/data/employes.validation";
-import { PAR_PAGE } from "@/lib/pagination";
 
 /**
  * Accès aux employés. **Chaque fonction porte sa propre garde d'autorisation.**
@@ -119,14 +118,8 @@ export interface FiltresPersonnel {
   page?: number;
 }
 
-/**
- * Lignes par page.
- *
- * Réexportée depuis `lib/pagination.ts` pour ne pas casser les appelants, mais
- * DÉFINIE là-bas : ce module est `server-only` et tire `next/navigation`, donc il
- * n'est pas importable depuis un test ou un script.
- */
-export { PAR_PAGE } from "@/lib/pagination";
+/** Nombre de lignes par page. */
+export const PAR_PAGE = 25;
 
 /** Une page de résultats, avec de quoi construire la navigation. */
 export interface PagePersonnel {
@@ -236,45 +229,23 @@ export async function listerPersonnel(
         ${motif}::text IS NULL
         OR lower(sans_accent(e.nom))     LIKE lower(sans_accent(${motif}))
         OR lower(sans_accent(e.prenoms)) LIKE lower(sans_accent(${motif}))
-        -- Le matricule n'a pas d'accent, mais la fonction y est appliquée pour
+        -- Le matricule n'a pas d'accent, mais sans_accent y est appliqué pour
         -- garder une expression homogène ; le coût est nul.
         OR lower(sans_accent(e.matricule)) LIKE lower(sans_accent(${motif}))
       )
     -- Nom puis prénoms : l'ordre dans lequel les RH lisent un état du personnel.
     -- Le tri porte sur la forme SANS ACCENT, sinon « NGUÉ » se classe après
     -- « NGUZ » — la collation place les lettres accentuées à part.
-    -- Le matricule en dernier départage les homonymes : sans un ordre TOTAL, deux
+    -- matricule en dernier départage les homonymes : sans un ordre TOTAL, deux
     -- pages peuvent répéter ou omettre une ligne (l'ordre des égalités n'est pas
     -- garanti d'une requête à l'autre).
-    -- ⚠️ Aucun accent grave dans ces commentaires : ils sont à l'intérieur d'un
-    -- littéral de gabarit, et le premier rencontré le refermerait.
     ORDER BY sans_accent(e.nom), sans_accent(e.prenoms), e.matricule
     LIMIT ${PAR_PAGE} OFFSET ${(pageDemandee - 1) * PAR_PAGE}
   `;
 
-  // ── Le total quand la page est vide ──────────────────────────────────────
-  //
-  // ⚠️ DÉFAUT TROUVÉ PAR LES TESTS (22/08/2026). `COUNT(*) OVER ()` est une
-  // fonction de fenêtre : elle est calculée SUR LES LIGNES RENVOYÉES. Au-delà de
-  // la dernière page, la requête n'en renvoie aucune — le total était donc lu
-  // comme 0, et l'écran annonçait « aucun employé ne correspond » alors que des
-  // résultats existaient. L'utilisateur était invité à élargir sa recherche quand
-  // il fallait revenir en arrière.
-  //
-  // Une page vide au-delà de la fin et un filtre sans résultat ne sont pas la
-  // même chose, et ne demandent pas la même action. On refait donc un décompte —
-  // mais SEULEMENT dans ce cas, qui est rare : une page vide au-delà de la
-  // première. Le cas courant garde sa requête unique.
-  let total: number;
-  if (lignes.length > 0) {
-    total = Number(lignes[0].total);
-  } else if (pageDemandee > 1) {
-    total = await compterPersonnel({ recherche, codeStatut, codeDepartement, inclureInactifs });
-  } else {
-    // Page 1 vide : le filtre ne trouve rien, inutile de recompter.
-    total = 0;
-  }
-
+  // `COUNT(*) OVER ()` ne renvoie aucune ligne quand le filtre ne trouve rien :
+  // le total est alors 0, et il faut le déduire de l'absence de lignes.
+  const total = lignes.length > 0 ? Number(lignes[0].total) : 0;
   const nombrePages = Math.max(1, Math.ceil(total / PAR_PAGE));
 
   return {
@@ -294,40 +265,6 @@ export async function listerPersonnel(
     page: pageDemandee,
     nombrePages,
   };
-}
-
-/**
- * Compte les employés d'un filtre, sans pagination.
- *
- * Appelée uniquement quand une page au-delà de la première revient vide : c'est
- * le seul moment où la fonction de fenêtre ne peut rien dire. Les conditions
- * doivent rester **identiques** à celles de `listerPersonnel`, sinon le total
- * annoncé ne correspondrait pas à la liste.
- */
-async function compterPersonnel(filtres: {
-  recherche: string | null;
-  codeStatut: string | null;
-  codeDepartement: string | null;
-  inclureInactifs: boolean;
-}): Promise<number> {
-  const motif = filtres.recherche === null ? null : `%${filtres.recherche}%`;
-
-  const [ligne] = await prisma.$queryRaw<{ total: bigint }[]>`
-    SELECT COUNT(*) AS total
-    FROM employe e
-    WHERE
-      (${filtres.inclureInactifs} OR e.actif IS TRUE)
-      AND (${filtres.codeStatut}::text      IS NULL OR e.code_statut      = ${filtres.codeStatut})
-      AND (${filtres.codeDepartement}::text IS NULL OR e.code_departement = ${filtres.codeDepartement})
-      AND (
-        ${motif}::text IS NULL
-        OR lower(sans_accent(e.nom))       LIKE lower(sans_accent(${motif}))
-        OR lower(sans_accent(e.prenoms))   LIKE lower(sans_accent(${motif}))
-        OR lower(sans_accent(e.matricule)) LIKE lower(sans_accent(${motif}))
-      )
-  `;
-
-  return Number(ligne?.total ?? 0);
 }
 
 /**
