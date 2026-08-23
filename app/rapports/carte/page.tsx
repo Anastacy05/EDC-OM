@@ -8,6 +8,7 @@ import { missionsParContinent, missionsParPaysDansContinent } from "@/lib/analyt
 import type { Continent } from "@/lib/continents";
 import { titrePageClass, carteClass } from "@/lib/styles";
 import RetourVers from "@/components/RetourVers";
+import AvertissementDonneesDemo from "../AvertissementDonneesDemo";
 import { useEstMonte } from "@/lib/useEstMonte";
 
 export default function CarteRapportPage() {
@@ -38,6 +39,8 @@ export default function CarteRapportPage() {
       <RetourVers href="/rapports" libelle="Retour aux rapports" />
 
       <h1 className={titrePageClass}>Missions par continent</h1>
+
+      <AvertissementDonneesDemo />
 
       <div className={`${carteClass} max-w-5xl`}>
         <p className="text-sm text-gray-600">

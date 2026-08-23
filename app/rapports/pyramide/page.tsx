@@ -7,6 +7,7 @@ import { participantsParStatut, participantsParEmployeDansStatut } from "@/lib/a
 import { STATUTS } from "@/lib/referentiels";
 import { titrePageClass, carteClass } from "@/lib/styles";
 import RetourVers from "@/components/RetourVers";
+import AvertissementDonneesDemo from "../AvertissementDonneesDemo";
 import { useEstMonte } from "@/lib/useEstMonte";
 
 export default function PyramideRapportPage() {
@@ -41,6 +42,8 @@ export default function PyramideRapportPage() {
       <RetourVers href="/rapports" libelle="Retour aux rapports" />
 
       <h1 className={titrePageClass}>Missions par statut</h1>
+
+      <AvertissementDonneesDemo />
 
       <div className={`${carteClass} max-w-3xl`}>
         <p className="text-sm text-gray-600">

@@ -6,6 +6,7 @@ import Modal from "@/components/Modal";
 import { missionsParAnnee, missionsParMoisDansAnnee, bornesDuMois, NOMS_MOIS } from "@/lib/analytics";
 import { titrePageClass, carteClass } from "@/lib/styles";
 import RetourVers from "@/components/RetourVers";
+import AvertissementDonneesDemo from "../AvertissementDonneesDemo";
 import { useEstMonte } from "@/lib/useEstMonte";
 
 export default function FriseRapportPage() {
@@ -36,6 +37,8 @@ export default function FriseRapportPage() {
       <RetourVers href="/rapports" libelle="Retour aux rapports" />
 
       <h1 className={titrePageClass}>Missions par année</h1>
+
+      <AvertissementDonneesDemo />
 
       <div className={`${carteClass} max-w-4xl`}>
         <p className="text-sm text-gray-600">Clique sur une année pour voir le détail par mois.</p>

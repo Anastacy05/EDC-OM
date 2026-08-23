@@ -5,6 +5,7 @@ import { prisma } from "@/lib/data/client";
 import { exigerAdministrateur, exigerSession, peutAccederAuMatricule } from "@/lib/auth/garde";
 import type { EmployeValide } from "@/lib/data/employes.validation";
 import { PAR_PAGE } from "@/lib/pagination";
+import { versChampDate } from "@/lib/dateUtils";
 
 /**
  * Accès aux employés. **Chaque fonction porte sa propre garde d'autorisation.**
@@ -91,18 +92,23 @@ export interface EmployeFiche {
 }
 
 /**
- * Formate une date de type `DATE` PostgreSQL en `AAAA-MM-JJ`.
+ * COMMENTÉ (22/08/2026) — `versChampDate` est DÉPLACÉE dans `lib/dateUtils.ts`.
  *
- * ⚠️ Les composantes UTC et non locales : Prisma renvoie un `Date` à minuit UTC
- * pour une colonne `DATE`. `getFullYear()` appliquerait le fuseau du serveur et
- * reculerait d'un jour à l'ouest de Greenwich — un employé né le 1er janvier
- * apparaîtrait né le 31 décembre de l'année précédente.
+ * Raison : les ordres de mission en ont le même besoin sur cinq dates
+ * (`date_depart`, `date_retour`, `date_emission`, et les bornes des filtres). La
+ * dupliquer garantirait qu'un jour les deux copies divergent sur le point le plus
+ * subtil du calcul — l'usage des composantes UTC. `lib/dateUtils.ts` est un module
+ * neutre, donc importable par le DAL, les écrans et les tests.
+ *
+ * Elle est réimportée en tête de ce fichier ; les appels ci-dessous n'ont pas
+ * changé.
+ *
+ * function versChampDate(d: Date): string {
+ *   const mois = String(d.getUTCMonth() + 1).padStart(2, "0");
+ *   const jour = String(d.getUTCDate()).padStart(2, "0");
+ *   return `${d.getUTCFullYear()}-${mois}-${jour}`;
+ * }
  */
-function versChampDate(d: Date): string {
-  const mois = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const jour = String(d.getUTCDate()).padStart(2, "0");
-  return `${d.getUTCFullYear()}-${mois}-${jour}`;
-}
 
 // ---------------------------------------------------------------------------
 // Lectures

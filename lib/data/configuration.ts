@@ -25,6 +25,16 @@ export interface Configuration {
   ageRetraite: number;
   /** Taille des lots de numéros d'OM réservés par poste (création hors ligne). */
   taillePlageNumero: number;
+  /**
+   * Jours de grâce après la date de retour avant qu'un OM non confirmé bascule
+   * en `EXPIRE`.
+   *
+   * Pendant ce délai, le balayage se contente de notifier. C'est ce qui rattrape
+   * le cas fréquent : la mission a eu lieu, le DG a signé le papier, et personne
+   * n'a cliqué « Confirmer ». Sans délai, l'application déclarerait caduc un OM
+   * parfaitement valide.
+   */
+  delaiPeremptionJours: number;
 }
 
 /**
@@ -36,7 +46,11 @@ export interface Configuration {
 export const getConfiguration = cache(async (): Promise<Configuration> => {
   const ligne = await prisma.configuration.findUnique({
     where: { id: 1 },
-    select: { ageRetraite: true, taillePlageNumero: true },
+    select: {
+      ageRetraite: true,
+      taillePlageNumero: true,
+      delaiPeremptionJours: true,
+    },
   });
 
   if (!ligne) {
@@ -50,5 +64,6 @@ export const getConfiguration = cache(async (): Promise<Configuration> => {
   return {
     ageRetraite: ligne.ageRetraite,
     taillePlageNumero: ligne.taillePlageNumero,
+    delaiPeremptionJours: ligne.delaiPeremptionJours,
   };
 });

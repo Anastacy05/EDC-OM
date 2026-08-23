@@ -118,6 +118,28 @@ export async function exigerAdministrateurOuEchouer(): Promise<Session> {
 }
 
 /**
+ * Session courante pour une ÉCRITURE, sans redirection.
+ *
+ * ── Pourquoi elle ne redirige pas, contrairement à `exigerSession` ───────────
+ *
+ * `redirect()` lève `NEXT_REDIRECT`. Appelée depuis une écriture, cette exception
+ * traverserait un `$transaction` ouvert et l'annulerait — ce qui est le bon
+ * résultat, mais obtenu par accident et sans message. Surtout, l'utilisateur
+ * perdrait sa saisie : la création d'un ordre de mission comporte une destination,
+ * un motif, des dates et une liste de participants, et la lui faire ressaisir
+ * parce que sa session a expiré pendant qu'il remplissait le formulaire serait
+ * une faute d'ergonomie.
+ *
+ * Rendre `null` laisse l'appelant répondre « votre session a expiré, reconnectez-
+ * vous » **en conservant le formulaire**. C'est la même logique que
+ * `exigerAdministrateurOuEchouer` ci-dessus, appliquée à l'authentification
+ * simple : la garde refuse toujours l'écriture, elle le dit seulement autrement.
+ */
+export async function exigerSessionOuEchouer(): Promise<Session | null> {
+  return lireSession();
+}
+
+/**
  * Vrai si la session appartient au compte FONDATEUR.
  *
  * ── Pourquoi la base et non le jeton ─────────────────────────────────────────

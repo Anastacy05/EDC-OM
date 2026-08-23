@@ -20,6 +20,7 @@ import {
 import { attenteRestante, enregistrerEchec, enregistrerSucces } from "@/lib/auth/limitation";
 import { cheminDeRetourSur } from "@/lib/auth/redirection";
 import { balayerFile } from "@/lib/data/mails";
+import { perimerParticipationsEchues } from "@/lib/data/om";
 
 /**
  * Server Actions d'authentification.
@@ -88,6 +89,28 @@ async function contexteRequete(): Promise<{
 // ---------------------------------------------------------------------------
 // Connexion
 // ---------------------------------------------------------------------------
+
+/**
+ * Balayage de péremption, à lancer par `after()`.
+ *
+ * Enveloppe `perimerParticipationsEchues` dans un `try/catch` : passée à `after()`,
+ * une fonction qui lève ferait remonter l'erreur alors que la réponse est déjà
+ * partie. L'utilisateur est connecté, le reste est de l'entretien — et un balayage
+ * manqué se rattrape à la connexion suivante.
+ */
+async function perimerOMEchus(): Promise<void> {
+  try {
+    const { expirees, bientotExpirees } = await perimerParticipationsEchues();
+    if (expirees > 0 || bientotExpirees > 0) {
+      console.info(
+        `[péremption] ${expirees} participation(s) expirée(s), ` +
+          `${bientotExpirees} approchant du délai.`
+      );
+    }
+  } catch (erreur) {
+    console.error("[péremption] balayage impossible :", erreur);
+  }
+}
 
 export async function connecter(
   _etatPrecedent: EtatFormulaire | undefined,
@@ -199,6 +222,26 @@ export async function connecter(
   // redirect is called » — ce qui compte ici, puisque `redirect` suit
   // immédiatement. `balayerFile` avale ses propres erreurs pour cette raison.
   after(balayerFile);
+
+  // Péremption des ordres de mission jamais confirmés, au même moment et pour les
+  // mêmes raisons.
+  //
+  // ── Pourquoi ici et pas dans une tâche planifiée ───────────────────────────
+  //
+  // Le projet n'a pas d'ordonnanceur, et la spécification n'en demande pas. Une
+  // connexion est le déclencheur naturel : elle est fréquente, elle a du réseau, et
+  // l'administrateur qui arrive voit un état à jour — ce qui est exactement le but
+  // (« pour que personne n'ait à faire le ménage »).
+  //
+  // ⚠️ Conséquence à connaître : sans connexion, rien ne périme. Un OM reste donc
+  // `EN_ATTENTE` au-delà du délai jusqu'à la prochaine ouverture de session. Ce
+  // n'est pas gênant — la péremption est un rangement, pas une garantie de sûreté —
+  // mais un rapport lu juste après une longue inactivité peut compter un OM en
+  // attente qui aurait dû être expiré.
+  //
+  // La fonction avale ses propres erreurs pour la même raison que `balayerFile` :
+  // un échec de balayage ne doit pas empêcher quelqu'un de se connecter.
+  after(perimerOMEchus);
 
   // `redirect` lève une exception (`NEXT_REDIRECT`) : elle doit être appelée
   // HORS de tout try/catch, sinon le catch l'avale et la redirection n'a pas

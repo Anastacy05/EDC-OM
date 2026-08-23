@@ -131,7 +131,7 @@ en Turbopack par défaut. Service Worker écrit à la main, ou compilation `--we
 | Retirer un participant | **Oui pendant la saisie** (état de formulaire), **non après enregistrement** | arbitrage 19/08 |
 | Étapes VISA (verso) | **Sorties du périmètre** — renseignées hors application | arbitrage 19/08 |
 | Émetteur de l'OM | **Toujours le DG** | `ref.txt` |
-| Numéro d'OM | `0042/OM/EDC/DG/2026`, plages réservées (§7) | `ref2`, **À VALIDER RH** |
+| Numéro d'OM | `0042/2026` en base, imprimé `N° 0042/2026/EDC/DG/DRH/SDARHAS`, plages réservées (§7) | décision d'implémentation étape 8 |
 | Export PDF | Impression navigateur depuis l'aperçu A4 | décidé §10 |
 | Signature électronique | **Validation tracée** (qui, quand, IP) — pas de cryptographie | arbitrage 19/08 |
 | Notifications | **Table en base** + mail à la reconnexion (§9) | arbitrage 19/08 |
@@ -637,7 +637,7 @@ CREATE TABLE participation (
   id_ordre_mission  BIGINT      NOT NULL REFERENCES ordre_mission(id),
   matricule         VARCHAR(20) NOT NULL REFERENCES employe(matricule),
 
-  numero_om         VARCHAR(40) NOT NULL UNIQUE,  -- '0042/OM/EDC/DG/2026'
+  numero_om         VARCHAR(40) NOT NULL UNIQUE,  -- '0042/2026', imprimé 'N° 0042/2026/EDC/DG/DRH/SDARHAS'
   statut            statut_participation NOT NULL DEFAULT 'EN_ATTENTE',
 
   -- ── Blocage de validation (§1). Renseignés par le serveur quand un conflit est
@@ -832,8 +832,10 @@ réattribuer un numéro déjà émis est grave.
 
 ### La solution retenue : plages réservées
 
-`ref2.txt` fixe le format : **`0042/OM/EDC/DG/2026`** — compteur sur 4 chiffres, année en
-suffixe, donc **remise à zéro annuelle**. **À VALIDER RH.**
+Le gabarit Word fait foi pour le format imprimé : la base stocke **`0042/2026`**
+(compteur sur 4 chiffres et année), puis le document ajoute
+`/EDC/DG/DRH/SDARHAS` : **`N° 0042/2026/EDC/DG/DRH/SDARHAS`**. Le compteur est
+remis à zéro annuellement. Cette séparation évite de dupliquer le suffixe du gabarit.
 
 La création se faisant **hors ligne** (§1), un compteur central est hors de question : le
 poste ne peut demander le numéro suivant à personne. Et renuméroter à la synchronisation
@@ -864,7 +866,8 @@ du stockage. Combinée au `UNIQUE` sur `numero_om`, la collision devient structu
 impossible. (Nécessite `CREATE EXTENSION btree_gist`, pour mélanger l'égalité sur `annee`
 et le recouvrement sur l'intervalle dans un même index.)
 
-Le numéro complet se compose : `lpad(numero, 4, '0') || '/OM/EDC/DG/' || annee`.
+Le numéro stocké se compose : `lpad(compteur, 4, '0') || '/' || annee`.
+Le suffixe administratif est ajouté par le gabarit, pas par la colonne `numero_om`.
 
 ### Le prix à payer, à assumer explicitement
 
@@ -881,6 +884,47 @@ L'arbitrage appartient aux RH, et il est binaire :
 
 Le modèle retient la première. **À VALIDER RH.**
 
+### Trois règles que la spécification ne tranchait pas (arbitrées le 22-23/08/2026)
+
+Elles étaient jusqu'ici **implicites dans le code** et écrites nulle part. Les laisser
+tacites garantissait qu'une réécriture les perdrait sans que personne ne s'en aperçoive.
+
+**1. `ANNULE`, `REFUSE` et `EXPIRE` ne produisent aucun conflit.** Aucun des trois ne
+correspond à un agent en déplacement, donc aucun n'engage l'employé sur la période. Le
+code d'origine (`lib/businessRules.ts:42`) n'écartait qu'`ANNULE` — non par choix, mais
+parce que les deux autres statuts n'existaient pas encore. Seuls `EN_ATTENTE` et
+`CONFIRME` sont *engageants* (`STATUTS_ENGAGEANTS`).
+
+**Et engager n'est pas bloquer** — c'est la seconde moitié de la règle :
+
+| Chevauchement avec | Effet | Pourquoi |
+|---|---|---|
+| un OM **`CONFIRME`** | **refus de la création entière** | L'agent est engagé par une pièce que le DG a signée ; l'envoyer ailleurs aux mêmes dates est matériellement impossible. Rien n'est écrit, aucun numéro n'est consommé. |
+| un OM **`EN_ATTENTE`** | **simple avertissement** | Aucun des deux n'est une décision. Refuser ici empêcherait l'administrateur de préparer deux hypothèses ; c'est justement son travail d'arbitrer. |
+
+Le blocage n'est donc pas perdu, il est **différé** : quand l'administrateur confirme
+l'un des deux, le serveur inscrit `blocage_motif` sur les participations concurrentes, et
+le `CHECK part_blocage_interdit_confirmation` interdit dès lors leur confirmation. La
+règle passe du code à la base. Le blocage est **nominatif** : sur une mission à trois
+agents dont un seul est en conflit, les deux autres restent confirmables.
+
+**2. Les bornes de mission sont inclusives.** Un retour le 10 et un départ le 10 **sont
+en conflit** : l'intervalle est `[départ, retour]`. C'était déjà le comportement
+(`lib/businessRules.ts:28`, deux `<=`), cohérent avec `dureeEnJours` qui compte les deux
+bornes — une mission d'un seul jour dure un jour, pas zéro. L'équivalent SQL doit rester
+d'accord : `daterange(a1, a2, '[]') && daterange(b1, b2, '[]')`.
+
+**3. La durée d'une mission est calendaire**, week-ends et jours fériés compris : une
+indemnité journalière court tous les jours. Il faut l'écrire parce que le §9 pose l'unité
+**inverse** pour les congés (jours ouvrables) — deux modules de la même application
+comptant les jours différemment est exactement le genre d'écart qui se lit en FCFA.
+
+**Une quatrième, apparue à l'implémentation : l'âge de la retraite est apprécié à la date
+de RETOUR**, pas de départ. `verifierRetraite` prenait le départ : un agent atteignant
+l'âge *pendant* la mission passait le contrôle et se retrouvait en déplacement pour l'EDC
+après avoir quitté le service. Le retour est la borne juste, puisque c'est la date jusqu'à
+laquelle la mission engage.
+
 ### Cycle de vie d'un OM : pourquoi rien ne se supprime
 
 Deux besoins ont été exprimés le 19/08 : l'admin veut écarter les OM non confirmés
@@ -890,7 +934,7 @@ numérotation qui l'interdit.
 
 **L'argument décisif.** Chaque OM consomme un numéro **définitif dès la création** (§7),
 tiré d'une plage réservée, et il est **imprimable immédiatement**. Supprimer
-l'enregistrement ne rend pas le numéro. Si `0042/OM/EDC/DG/2026` a été imprimé puis
+l'enregistrement ne rend pas le numéro. Si `0042/2026` a été imprimé puis
 supprimé, le numéro existe **sur papier mais plus en base** — précisément le défaut de
 traçabilité que la numérotation par plages devait éliminer. On aurait payé une contrainte
 `EXCLUDE` pour rien.
@@ -1630,8 +1674,10 @@ L'ordre n'est pas indifférent : chaque étape n'exige que ce que les précéden
    portés par l'URL, `/personnel/nouveau`, `/personnel/[matricule]` avec bloc compte et
    activation/désactivation. Le lien de mot de passe **part maintenant par courriel**
    (§16) ; il n'est affiché à l'écran qu'en repli, si l'envoi échoue. Détail au §15.
-8. `ordre_mission` + `participation` : création, puis **validation avec détection de
-   conflit** (§1) — c'est le cœur métier, et il dépend de tout ce qui précède.
+8. `ordre_mission` + `participation` : **fait le 23/08/2026**. Création transactionnelle,
+   numéro par participant depuis les plages, instantané du personnel et du barème,
+   idempotence ULID, détection de conflit par participant, transitions administrateur,
+   génération documentaire depuis la base et péremption avec régularisation.
 9. Bascule des pages admin en composants serveur. `lib/useEstMonte.ts` devient inutile.
 10. **Migration du `.docx` vers le navigateur** : `docxtemplater` quitte le Route
     Handler, condition du téléchargement hors ligne (§1).
@@ -1679,7 +1725,7 @@ Vérifié sur la base réelle, serveur de production :
 3. **`x-forwarded-for` est falsifiable** si l'application n'est pas derrière un proxy qui le réécrit. La limitation par IP est donc un ralentisseur ; celle par compte reste efficace.
 4. **Le cache du Service Worker ne sera pas protégé par le mot de passe** (étape 11) : sur un poste volé, les pages déjà en cache restent lisibles. Inhérent au choix hors ligne. **À trancher : purger le cache à la déconnexion ?**
 5. **Toutes les routes sont désormais rendues à la demande** (`ƒ`), parce que le Header lit la session dans le layout racine. C'est le prix d'un état de connexion visible partout ; `<Suspense>` limite le coût au seul fragment concerné, mais n'annule pas la bascule. Réversible avec `cacheComponents`.
-6. **`/api/generate-om` n'est protégée qu'en authentification, pas en autorisation** : le contenu du document vient toujours du corps de la requête, donc un employé connecté peut se fabriquer un OM arbitraire. Correction prévue à l'étape 8 (lire l'OM en base par son identifiant).
+6. ~~**`/api/generate-om` n'est protégée qu'en authentification, pas en autorisation**~~ — **corrigé le 23/08/2026 (étape 8).** La route ne reçoit plus que `{ idOrdreMission, matricule }` et lit tout en base sous la garde `peutAccederAuMatricule` ; l'ancienne forme de corps est refusée en 400, un matricule de collègue en 403. Détail au §17.4.
 
 ### 14.4 Où vit la sécurité
 
@@ -1733,7 +1779,7 @@ Toutes vérifiées contre le serveur réel : matricule vide, nom vide, statut in
 2. **La recherche n'est pas insensible aux accents.** « rene » ne trouve pas « RENÉ ». La fonction immuable `sans_accent()` et ses index existent depuis la migration du 21/08/2026, mais Prisma ne les exploite pas encore ; il faut une requête `$queryRaw`. À faire.
 3. **Pas de pagination.** Toute la liste filtrée est chargée. À corriger : plus de 400 employés attendus.
 4. **Pas de journal des modifications.** Qui a changé quoi, quand, n'est pas tracé. La session est connue, donc c'est faisable — mais aucune table ne l'accueille aujourd'hui. Explicitement reporté par l'utilisatrice.
-5. **`lib/employees.ts` (données de démonstration) est toujours là**, et les écrans d'OM lisent encore `localStorage`. Les deux sources coexistent jusqu'à l'étape 8. À commenter à l'étape 14.
+5. **`lib/employees.ts` (données de démonstration) est toujours là.** Les écrans d'OM, eux, **ne lisent plus `localStorage`** depuis le 23/08/2026 (étape 8) : `/om`, `/om/nouveau` et `/om/[id]` passent par le DAL. Ce qui reste sur les données de démonstration, ce sont les **rapports** (`lib/analytics.ts` lit `mockOMs`), signalé à l'écran par un encart. À commenter à l'étape 14.
 
 ---
 
@@ -1818,3 +1864,136 @@ Vérifié sur le serveur de production réel, avec un serveur SMTP local : courr
 4. **Envoi séquentiel, 20 messages par balayage.** Le relais Brevo « does not support batch sending », et un Zimbra d'entreprise limite les connexions simultanées par IP. La lenteur régule le débit. Une invitation en masse (400 employés) demanderait 20 balayages.
 5. **`prisma/creerCompte.ts` n'envoie pas de courriel** : il imprime le lien. C'est l'outil d'amorçage, lancé par quelqu'un ayant un accès serveur, souvent avant que le SMTP soit configuré.
 6. **Les identifiants Brevo ne sont pas encore renseignés.** Toute la chaîne a été éprouvée contre un serveur SMTP local (STARTTLS, authentification, refus 4xx/5xx, TLS incompatible) ; **il reste à valider contre le vrai relais**, où le domaine d'expéditeur doit être vérifié dans leur tableau de bord sous peine de refus permanent.
+
+---
+
+## 17. Ordres de mission — décisions et limites (23/08/2026)
+
+### 17.1 Ce que cette étape corrige, et qui n'était pas « pas encore branché »
+
+Le §1 garantissait que « la validation voit toujours l'état complet de la base ». Or
+`verifierConcurrence` (`lib/businessRules.ts`) lisait `mockOMs`, donc `localStorage` :
+**la portée était un navigateur**. Deux agents sur deux postes créaient deux OM confirmés
+sur la même période pour le même employé sans qu'aucun avertissement n'apparaisse. Ce
+n'était pas une fonctionnalité en attente, c'était **l'inverse de la garantie annoncée** —
+donc une fausse assurance, plus dangereuse qu'une absence de contrôle.
+
+Trois autres défauts fermés au passage :
+
+| Défaut | Ce qu'il permettait |
+|---|---|
+| `handleValider` ne validait que les deux dates et la présence d'un participant | Enregistrer un OM sans pays de destination, donc sans zone, donc **sans indemnité**. Cinq colonnes `NOT NULL` violables à la première insertion réelle : `motif`, `ville_destination`, `code_pays`, `lieu_emission`, `date_emission`. |
+| `/api/generate-om` acceptait l'objet complet du document dans le corps | N'importe quel utilisateur authentifié obtenait un ordre de mission Word **au contenu de son choix** — son nom, sa destination, un numéro inventé, le montant qu'il voulait — avec la mise en forme officielle de l'EDC. L'authentification vérifiait *qui* appelait, pas *ce qu'il* demandait. |
+| Les tables étaient écrites, payées et vides | `ordre_mission`, `participation`, `plage_numero` : zéro ligne, zéro appel dans tout le dépôt. La contrainte `EXCLUDE USING gist` avait coûté l'extension `btree_gist` et ne servait à personne. |
+
+### 17.2 Les décisions prises avec l'utilisatrice
+
+| Question | Décision |
+|---|---|
+| **Format du numéro** | **Le gabarit `.docx` fait foi.** Il imprime `N° {numeroOM}/EDC/DG/DRH/SDARHAS`, donc la colonne stocke `0042/2026`. Le §7 est **amendé** : le format `0042/OM/EDC/DG/2026` aurait produit `N° 0042/OM/EDC/DG/2026/EDC/DG/DRH/SDARHAS` sur le papier — deux suffixes collés. |
+| **Un numéro par participant** | Confirmé. C'est le grain de la base (`numero_om` est sur `participation`) et du métier : chaque agent reçoit **son** document. Une mission à trois agents consomme trois numéros. |
+| **Attribution** | **Plages réservées**, le mécanisme déjà en base. À l'étape 11 le poste réservera son lot et le consommera hors ligne : **même mécanisme, aucune renumérotation à prévoir.** |
+| **Qui crée** | Tout utilisateur authentifié, pour n'importe quel employé actif. Ce sont les **confirmations** qui sont réservées à l'administrateur. |
+| **Imputation budgétaire** | Laissée vide (colonnes nullables). « À VALIDER DFCC ». |
+| **ULID** | Dépendance `ulid` plutôt qu'une implémentation maison : c'est une spécification (48 bits d'horodatage, 80 bits d'aléa, base32 de Crockford), et une version approximative aurait une non-conformité subtile invisible avant la production. |
+
+### 17.3 L'idempotence par ULID, générée côté navigateur dès maintenant
+
+`ordre_mission.ulid` est une clé produite par le **client**, transmise en champ caché, et
+`UNIQUE` en base. Un second envoi du même brouillon — double-clic, reprise après coupure —
+renvoie l'OM déjà créé (`?cree=existant`) au lieu d'en créer un second : **aucun numéro
+n'est brûlé**, et l'utilisateur est emmené sur sa mission plutôt que devant une erreur.
+
+Elle est générée côté navigateur alors que l'étape 8 est entièrement en ligne, pour deux
+raisons : c'est le même chemin de code qu'à l'étape 11, où le serveur ne pourra pas la
+fournir ; et le double envoi devient inoffensif tout de suite.
+
+⚠️ **`CHAR(26)` est un `bpchar`** : PostgreSQL complète à droite et ignore les espaces de
+fin en comparaison. Un ULID tronqué serait donc stocké complété **et comparé égal**. La
+longueur est vérifiée applicativement, pas seulement la forme — et l'alphabet exclut
+`I`, `L`, `O` et `U`, si bien qu'un contrôle sur `[A-Z0-9]` accepterait des chaînes
+qu'aucun générateur ne produit.
+
+### 17.4 Le document reste TOUJOURS téléchargeable — c'est la mention qui protège
+
+Restreindre le téléchargement d'un OM non confirmé empêcherait d'obtenir la signature du
+Directeur général, qui est justement l'étape suivante : l'application bloquerait le
+processus qu'elle sert. Le téléchargement est donc permis quel que soit le statut, et
+c'est la **mention imprimée** qui distingue une pièce sans valeur :
+
+| État | Mention |
+|---|---|
+| en conflit (bloqué) | `CONFLIT DE PÉRIODE — À RÉGULARISER AVANT SIGNATURE` |
+| `REFUSE` | `REFUSÉ — SANS VALEUR` |
+| `EXPIRE` | `EXPIRÉ — SANS VALEUR` |
+| `ANNULE` | `ANNULÉ` |
+| `EN_ATTENTE` | **aucune** |
+| `CONFIRME` | **aucune** |
+
+`EN_ATTENTE` sans mention est un choix, pas un oubli : marquer « sans valeur » le document
+destiné à la signature reviendrait à **demander au DG de signer un papier qui s'annonce
+sans valeur**. Il se distingue déjà tout seul — l'emplacement de signature est vide. Le
+blocage passe avant le statut : un OM en attente mais en conflit doit être régularisé
+*avant* de partir, sinon on fait signer pour rien.
+
+Le gabarit n'ayant aucune balise de mention, elle est **préfixée au motif** — la seule
+solution sans reprendre le `.docx`, et elle tombe à l'endroit qu'on lit en premier.
+
+### 17.5 `EXPIRE` n'est pas un cul-de-sac
+
+Le balayage de péremption (`after()` à la connexion, comme la file de courriels) fait
+basculer en `EXPIRE` les participations `EN_ATTENTE` dont la date de retour a dépassé le
+délai de grâce `configuration.delai_peremption_jours` (15 jours). Pendant ce délai, il se
+contente de **notifier** — parce que le cas fréquent n'est pas l'OM abandonné, c'est celui
+que le DG a signé sans que personne ne clique « Confirmer ». Sans délai, l'application
+déclarerait caduc un OM parfaitement valide.
+
+Et une participation expirée reste **régularisable** : la confirmation l'accepte avec un
+`regularisation_motif` facultatif, la trace `expire_le` étant conservée pour expliquer
+pourquoi ce motif existe. La migration `20260823010000_peremption_et_regularisation`
+porte ces colonnes.
+
+### 17.6 Ce qui a été mesuré, pas supposé
+
+1. **La création par sollicitation directe de la Server Action fonctionne, et elle est protégée.** Le formulaire d'enregistrement n'apparaît qu'à l'étape « aperçu » d'un composant client : il n'existe dans aucun HTML initial, donc aucun test ne pouvait l'atteindre par recopie de champs cachés. Le protocole RSC a été reproduit dans `tests/aide/client.mts` (`appelerAction`) — ce qui éprouve du même coup la menace que la doc Next décrit : *« Server Functions are reachable via direct POST requests »*. Un utilisateur ordinaire sollicitant `actionConfirmerOM` est refusé, et la base n'est pas touchée.
+2. **⚠️ Dans le corps multipart d'une Server Action, la racine `"0"` doit arriver EN DERNIER.** Le serveur décode au fil du flux (busboy) et résout la référence `$K1` au moment où il lit la racine : ce qui arrive après est perdu. Avec la racine en tête, l'action reçoit un `FormData` **vide** — et comme rien ne lève, l'échec se lit « tous les champs sont obligatoires », ce qui envoie chercher très loin de la cause.
+3. **Le curseur de plage avance d'exactement N**, N étant le nombre de participants, et les numéros sont distincts et consécutifs. Une mission peut être **à cheval sur deux plages** quand la courante s'épuise : les numéros ne sont alors pas consécutifs, ce qui est sans importance — la mission n'a pas de numéro propre.
+4. **La contrainte `EXCLUDE` refuse bien deux plages recouvrantes et accepte deux plages jointives** (1-50 et 51-100 coexistent, grâce au `borne_max + 1` d'`int4range`). ⚠️ Prisma **ne remonte pas** `23P01` (`exclusion_violation`) en `P2002` : sans détecteur dédié (`estRecouvrementPlage`), l'erreur passerait pour une panne quelconque et le réessai ne se ferait pas. Même remarque pour `23514` (`check_violation`).
+5. **Un refus ne consomme jamais de numéro.** Employé désactivé, retraité, matricule inconnu, pays hors référentiel, conflit confirmé : dans les cinq cas, zéro ligne écrite et curseur inchangé. Le message le promet à l'utilisateur (« Rien n'a été enregistré et aucun numéro n'a été consommé »), donc c'est vérifié.
+6. **Un défaut trouvé en écrivant les tests, et corrigé :** la redirection qui suit un enregistrement est `/om/<id>?cree=1`, **sans participant**, et un compte administrateur n'a pas de matricule. `lireParticipation` exigeant un matricule, l'écran de confirmation répondait **404 à l'auteur de l'OM** — le chemin le plus fréquent de la fonctionnalité. Un matricule vide signifie désormais « la mission, par son premier participant », cas réservé aux administrateurs par la garde.
+7. **Un piège de test, documenté parce qu'il se reproduira :** ramener `prochain_numero` à `borne_max` sur une plage **déjà épuisée** rembobine le curseur d'un cran et réémet un numéro attribué. L'`UNIQUE` sur `numero_om` le refuse — le filet fonctionne — mais la transaction annulée laisse le curseur rembobiné, si bien que toutes les créations suivantes échouent sur le même numéro. Pour éprouver le rechargement, il faut **réserver une plage neuve**, pas rouvrir une plage consommée.
+8. **`ulid()` n'est PAS monotone dans une même milliseconde.** La monotonie est une option de la spécification (`monotonicFactory()`), que ce projet n'emploie pas : deux appels successifs ne diffèrent que par leurs 80 bits d'aléa et se trient au hasard. Rien dans l'application n'en dépend — l'ULID est une clé d'idempotence, pas un curseur ; c'est `cree_le` qui date un OM.
+9. **`COUNT(*) OVER ()` compte les lignes RENVOYÉES**, donc rend 0 sur une page au-delà de la dernière. Un recomptage conditionnel distingue « cette page n'existe pas » de « aucun résultat » — les confondre enverrait l'utilisateur élargir sa recherche là où il devait revenir en arrière.
+10. **⚠️ Aucun accent grave dans les commentaires SQL des `$queryRaw`** : un accent grave termine le littéral de gabarit JavaScript.
+
+### 17.7 Limites connues
+
+1. **Pas d'hors-ligne.** Ni Service Worker, ni IndexedDB, ni file d'envoi, ni génération ULID côté navigateur pour un OM créé sans réseau (étape 11). Le mécanisme de plages est en place ; seul le **lieu de consommation** changera.
+2. **`docxtemplater` reste côté serveur** (étape 10), donc le téléchargement exige le réseau — ce qui contredit encore le §1. Les deux exigences se rejoignent mal : lecture en base (serveur) contre hors ligne (navigateur). Le compromis probable : générer côté navigateur à partir de données **déjà synchronisées**, jamais d'une saisie.
+3. **Les rapports lisent encore les données de démonstration** (`lib/analytics.ts` → `mockOMs`). Un encart le dit sur les trois pages `/rapports/*` — sans lui, elles afficheraient des chiffres faux sans le signaler. Bascule à l'étape 12.
+4. **`lib/mockData.ts` n'est pas commenté** : les rapports en dépendent (étape 14).
+5. **Aucun journal des modifications.** Les colonnes `*_le` / `*_par` / `*_depuis_ip` tracent la **dernière** transition de chaque type, pas l'historique. Une participation confirmée puis annulée garde les deux traces, mais deux annulations successives ne se distingueraient pas. Aucune table ne l'accueille aujourd'hui.
+6. **`x-forwarded-for` est falsifiable** sans proxy qui le réécrive (§14.3). Les colonnes `*_depuis_ip` sont donc une trace d'audit **indicative** — utile pour relire l'historique, insuffisante pour fonder une décision de sécurité.
+7. **La limite de 30 participants par mission est applicative**, aucune contrainte en base ne la borne. Elle existe parce que chaque participant consomme un numéro définitif : une saisie erronée en brûlerait autant.
+8. **L'année du numéro est celle de la création**, pas du départ. Une mission de janvier 2027 préparée en décembre 2026 consomme un numéro 2026 — c'est voulu, le compteur appartient à l'année d'émission du papier produit ce jour-là.
+9. **Étapes VISA : le verso continue de s'imprimer avec trois lignes vierges.** La spécification demande de les commenter, mais une boucle `{#visas}` vide **supprime le tableau imprimé**, alors que ses cases doivent rester présentes pour le remplissage manuel au retour de mission. C'est la spécification qui doit être amendée, pas le code.
+10. **Table `frais` toujours vide** : créée à l'étape 3, alimentée par aucun écran (§2, §11).
+
+### 17.8 Deux écarts entre le plan approuvé et ce qui est implémenté
+
+Signalés parce que le plan de l'étape 8 disait autre chose, et que le code a été retenu tel quel après arbitrage.
+
+1. **À la création, un chevauchement avec un OM `CONFIRME` refuse la mission entière** — le plan décrivait une création acceptée avec `blocage_motif` posé sur le seul participant en conflit. La règle retenue est plus stricte à l'entrée : un agent déjà engagé par une pièce signée ne peut pas partir ailleurs, donc rien n'est écrit et aucun numéro n'est consommé. Le blocage nominatif existe toujours, mais **différé** à la confirmation d'un concurrent — et c'est là qu'on observe que « les autres participants passent ».
+2. **L'annulation est autorisée depuis `EN_ATTENTE`**, alors que le plan voulait la refuser tant que rien n'était confirmé. C'est ce qui permet de retirer un agent d'une mission préparée par erreur sans devoir la confirmer d'abord — l'obliger produirait une confirmation mensongère dans les traces d'audit.
+
+### 17.9 Vérification
+
+| Niveau | Fichier | Couverture |
+|---|---|---|
+| Unitaire | `tests/om.test.mts` | **81 tests.** Composition et décomposition du numéro, aller-retour, borne 9999 ; les cinq `NOT NULL`, dates inversées, départ passé, doublon de participant ; bornes inclusives ; statuts écartés ; ULID (longueur, alphabet, horodatage relisible). |
+| Bout en bout | `tests/e2e/om.test.mts` | **32 tests** contre le vrai serveur et la vraie base. Création transactionnelle et instantané figé ; idempotence ULID ; rechargement et épuisement de plage ; `EXCLUDE` ; concurrence ; conflit confirmé, conflit en attente, blocage nominatif et sa levée ; transitions et traces d'audit ; gardes (POST direct, cloisonnement des listes et des fiches) ; `/api/generate-om` (401, 400, 403, 404, `.docx` nommé, mention lue **dans** `word/document.xml`) ; péremption puis régularisation ; pagination, recherche sans accents, filtres. |
+
+Total de la suite : **81 unitaires + 77 bout en bout, tous au vert le 23/08/2026.**
+
+**Reste à faire manuellement** : créer un OM à trois participants, vérifier les trois
+numéros sur le document imprimé (`N° 0042/EDC/DG/DRH/SDARHAS`), confirmer, annuler.

@@ -183,8 +183,13 @@ export interface ResultatValidation {
  * Cameroun est à UTC+1, donc à l'est — le décalage y va dans l'autre sens, mais
  * il existe. On construit donc la date en UTC explicitement : la colonne est de
  * type `DATE`, sans heure, et doit porter exactement le jour saisi.
+ *
+ * Exportée depuis le 22/08/2026 : la validation des ordres de mission
+ * (`lib/data/om.validation.ts`) a exactement le même besoin sur ses trois dates,
+ * et réécrire cette relecture du 31 février garantirait qu'une des deux copies
+ * finisse par diverger.
  */
-function analyserDate(valeur: string): Date | null {
+export function analyserDate(valeur: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(valeur.trim());
   if (!m) return null;
 
@@ -207,8 +212,8 @@ function analyserDate(valeur: string): Date | null {
   return d;
 }
 
-/** Nombre d'années révolues entre deux dates. */
-function anneesRevolues(depuis: Date, jusqua: Date): number {
+/** Nombre d'années révolues entre deux dates. Exportée pour la règle de retraite des OM. */
+export function anneesRevolues(depuis: Date, jusqua: Date): number {
   let ans = jusqua.getUTCFullYear() - depuis.getUTCFullYear();
   const moisEcart = jusqua.getUTCMonth() - depuis.getUTCMonth();
   if (moisEcart < 0 || (moisEcart === 0 && jusqua.getUTCDate() < depuis.getUTCDate())) {

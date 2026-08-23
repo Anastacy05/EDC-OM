@@ -61,6 +61,13 @@ export interface EmployeEssai {
   codeStatut?: string;
   codeDepartement?: string;
   actif?: boolean;
+  /**
+   * Date de naissance, pour éprouver la règle de retraite.
+   *
+   * Par défaut 1990 : largement en dessous de tout âge de retraite configurable
+   * (50 à 75 ans). Un test sur le refus d'un retraité la surcharge.
+   */
+  dateNaissance?: Date;
 }
 
 /**
@@ -129,7 +136,7 @@ export async function semerEmploye(employe: EmployeEssai): Promise<string> {
   const donnees = {
     nom: employe.nom,
     prenoms: employe.prenoms,
-    dateNaissance: new Date(Date.UTC(1990, 4, 12)),
+    dateNaissance: employe.dateNaissance ?? new Date(Date.UTC(1990, 4, 12)),
     dateEmbauche: new Date(Date.UTC(2015, 0, 5)),
     situationFamille: "CELIBATAIRE" as const,
     codeStatut: statut.code,
@@ -155,6 +162,44 @@ export async function semerEmploye(employe: EmployeEssai): Promise<string> {
 }
 
 /**
+ * Crée un compte **non administrateur** rattaché à un employé d'essai.
+ *
+ * ── Pourquoi il est indispensable ────────────────────────────────────────────
+ *
+ * Toute la moitié « refus » des gardes ne peut être éprouvée qu'avec lui : qu'un
+ * simple utilisateur ne confirme pas un OM, ne voie pas les missions d'un collègue,
+ * n'obtienne pas le document d'un autre matricule. Un test qui ne montre que le cas
+ * autorisé ne prouve rien de la garde — il prouve seulement que l'écran fonctionne
+ * pour l'administrateur.
+ *
+ * Le matricule est le lien : `peutAccederAuMatricule` compare `session.matricule` à
+ * celui de la participation demandée. Un compte sans matricule ne pourrait rien voir
+ * du tout, ce qui ne serait pas le même test.
+ */
+export async function semerCompteEmploye(
+  matricule: string,
+  motDePasse = "MotDePasseAgent-2026!"
+): Promise<{ email: string; motDePasse: string; matricule: string }> {
+  if (!matricule.startsWith(PREFIXE_ESSAI)) {
+    throw new Error(
+      `Compte d'essai pour « ${matricule} » : le matricule doit commencer par ` +
+        `« ${PREFIXE_ESSAI} », sinon le nettoyage ne le retrouverait pas.`
+    );
+  }
+
+  const email = `${matricule.toLowerCase()}@${DOMAINE_ESSAI}`;
+  const empreinte = await hacherMotDePasse(motDePasse);
+
+  await prisma.utilisateur.upsert({
+    where: { email },
+    update: { motDePasseHash: empreinte, actif: true, role: "UTILISATEUR", matricule },
+    create: { email, role: "UTILISATEUR", motDePasseHash: empreinte, matricule },
+  });
+
+  return { email, motDePasse, matricule };
+}
+
+/**
  * Supprime tout le jeu d'essai. À appeler en `before` ET en `after` : un test
  * interrompu laisse des traces, et repartir d'un état sale fait échouer le suivant
  * pour une raison qui n'a rien à voir avec lui.
@@ -174,7 +219,41 @@ export async function nettoyerEssai(): Promise<void> {
   });
   const identifiants = comptes.map((c) => c.id);
 
+  // ── Ordres de mission ─────────────────────────────────────────────────────
+  //
+  // AVANT les comptes et les employés : `ordre_mission.cree_par` et
+  // `participation.matricule` sont des clés étrangères en `RESTRICT`, donc
+  // supprimer un compte ou un employé encore référencé échouerait.
+  //
+  // La marque est double, et c'est volontairement large ICI seulement : un OM
+  // d'essai est soit créé par un compte d'essai, soit porteur d'un participant
+  // d'essai. Les deux sont reconnaissables ; on ne touche à rien d'autre.
+  const omEssai = await prisma.ordreMission.findMany({
+    where: {
+      OR: [
+        ...(identifiants.length > 0 ? [{ creePar: { in: identifiants } }] : []),
+        { participations: { some: { matricule: { startsWith: PREFIXE_ESSAI } } } },
+      ],
+    },
+    select: { id: true },
+  });
+  const idsOM = omEssai.map((o) => o.id);
+
+  if (idsOM.length > 0) {
+    // `frais` d'abord : sa clé étrangère vers `participation` est en cascade, mais
+    // l'expliciter évite de dépendre d'un réglage de schéma qui pourrait changer.
+    await prisma.frais.deleteMany({ where: { idOrdreMission: { in: idsOM } } });
+    await prisma.participation.deleteMany({ where: { idOrdreMission: { in: idsOM } } });
+    await prisma.ordreMission.deleteMany({ where: { id: { in: idsOM } } });
+  }
+
   if (identifiants.length > 0) {
+    // Les plages réservées par les comptes d'essai. Sans ce nettoyage, elles
+    // s'accumuleraient et la contrainte d'exclusion pousserait chaque nouvelle
+    // réservation toujours plus loin dans l'année — les tests finiraient par
+    // buter sur la limite de 9999.
+    await prisma.plageNumero.deleteMany({ where: { idUtilisateur: { in: identifiants } } });
+
     await prisma.jetonMotDePasse.deleteMany({
       where: { idUtilisateur: { in: identifiants } },
     });

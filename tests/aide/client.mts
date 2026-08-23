@@ -19,7 +19,11 @@
  * Les deux sont désormais réglées ici, une fois pour toutes.
  */
 
+import { readdir, readFile } from "node:fs/promises";
+import path from "node:path";
+
 import { COOKIE_ACCES, COOKIE_RENOUVELLEMENT } from "@/lib/auth/jeton";
+import { DOSSIER_BUILD } from "./serveur.mts";
 
 /**
  * Adresse par défaut, pour un serveur déjà lancé à la main.
@@ -131,10 +135,21 @@ export class Session {
    * ⚠️ `FormData` et NON `URLSearchParams` : voir l'en-tête du fichier. On laisse
    * `fetch` poser lui-même l'en-tête `content-type` avec sa frontière — l'écrire
    * à la main produit une frontière qui ne correspond pas au corps.
+   *
+   * Une valeur peut être un TABLEAU : le champ est alors répété, ce qui est la seule
+   * façon d'envoyer plusieurs participants à un ordre de mission (`getAll`).
+   * `append` et non `set` — `set` écraserait la valeur précédente, et le serveur ne
+   * verrait qu'un seul matricule.
    */
-  async soumettre(chemin: string, champs: Record<string, string>): Promise<Reponse> {
+  async soumettre(
+    chemin: string,
+    champs: Record<string, string | string[]>
+  ): Promise<Reponse> {
     const corps = new FormData();
-    for (const [nom, valeur] of Object.entries(champs)) corps.append(nom, valeur);
+    for (const [nom, valeur] of Object.entries(champs)) {
+      if (Array.isArray(valeur)) for (const v of valeur) corps.append(nom, v);
+      else corps.append(nom, valeur);
+    }
 
     const reponse = await fetch(this.base + chemin, {
       method: "POST",
@@ -151,6 +166,129 @@ export class Session {
   }
 
   /**
+   * POST en JSON, pour les Route Handlers (`/api/*`).
+   *
+   * Distinct de `soumettre` : une route d'API attend `application/json`, pas un
+   * corps multipart. Renvoie aussi le type de contenu, car c'est ce qui distingue un
+   * document Word d'un message d'erreur, ainsi que les octets bruts — le contenu du
+   * `.docx` est la seule preuve qu'une mention de statut y figure vraiment.
+   */
+  async poster(
+    chemin: string,
+    charge: unknown
+  ): Promise<
+    Reponse & {
+      typeContenu: string | null;
+      octets: number;
+      /** En-tête `Content-Disposition`, qui porte le nom de fichier proposé. */
+      disposition: string | null;
+      /** Corps brut, pour ouvrir une archive ou compter des octets. */
+      binaire: Uint8Array;
+    }
+  > {
+    const reponse = await fetch(this.base + chemin, {
+      method: "POST",
+      headers: { cookie: this.enTete(), "content-type": "application/json" },
+      body: JSON.stringify(charge),
+      redirect: "manual",
+    });
+    this.absorber(reponse);
+    const donnees = await reponse.arrayBuffer();
+    const typeContenu = reponse.headers.get("content-type");
+    return {
+      statut: reponse.status,
+      emplacement: reponse.headers.get("location"),
+      // Le corps n'est décodé en texte que s'il n'est pas binaire : décoder un
+      // `.docx` en UTF-8 produirait du bruit illisible dans les messages d'échec.
+      corps: typeContenu?.includes("json") ? new TextDecoder().decode(donnees) : "",
+      typeContenu,
+      octets: donnees.byteLength,
+      disposition: reponse.headers.get("content-disposition"),
+      binaire: new Uint8Array(donnees),
+    };
+  }
+
+  /**
+   * Appelle une Server Action **directement**, comme le navigateur le fait après
+   * hydratation.
+   *
+   * ── Pourquoi cette méthode est nécessaire ──────────────────────────────────
+   *
+   * `soumettreFormulaire` couvre les actions dont le `<form>` est rendu côté
+   * serveur : il suffit d'en recopier les champs cachés. Mais le formulaire
+   * d'enregistrement d'un ordre de mission n'apparaît qu'à l'étape « aperçu »,
+   * atteinte par un clic dans un composant client — il n'est donc PAS dans le HTML
+   * initial, et il n'y a aucun champ caché à recopier. Sans cette méthode, la
+   * création d'un OM — le cœur de l'étape 8 — ne serait éprouvée par aucun test de
+   * bout en bout.
+   *
+   * Elle sert aussi à ce qu'aucun formulaire ne permet : **solliciter une action
+   * réservée sans passer par l'écran**. C'est exactement la menace décrite par la
+   * doc Next (« Server Functions are reachable via direct POST requests »), donc
+   * exactement ce qu'un test de garde doit reproduire.
+   *
+   * ── Le protocole ───────────────────────────────────────────────────────────
+   *
+   * En-tête `Next-Action: <identifiant>` plus un corps multipart portant les
+   * arguments sérialisés par React :
+   *
+   *     "_1_<champ>" = <valeur>               ← les entrées du FormData n° 1
+   *     "0"          = ["$undefined","$K1"]   ← les deux arguments de l'action
+   *
+   * Le premier argument est l'état précédent d'`useActionState` (`undefined` au
+   * premier envoi), le second le `FormData`. `$K1` est la référence de React vers
+   * un FormData dont les entrées portent le préfixe `_1_`.
+   *
+   * ⚠️ **L'ordre compte** : les entrées `_1_*` doivent précéder la racine `"0"`.
+   * Le serveur décode le multipart **au fil du flux** (busboy) et résout la
+   * référence `$K1` au moment où il lit la racine : ce qui arrive après est perdu.
+   * Avec la racine en tête, l'action reçoit un FormData **vide** — et comme aucune
+   * erreur n'est levée, l'échec se lit alors comme « tous les champs sont
+   * obligatoires », ce qui envoie chercher très loin de la cause. Constaté le
+   * 23/08/2026.
+   *
+   * ⚠️ Cette forme a été **vérifiée** contre `encodeReply` / `decodeReply` de la
+   * copie de `react-server-dom` embarquée par Next 16.2.12, plutôt que devinée. On
+   * ne l'importe pas pour autant : `next/dist/compiled/…` est un chemin interne,
+   * dont le nom dépend même du bundler (turbopack / webpack). Si le format
+   * changeait, le test échouerait bruyamment — ce qui est le comportement voulu.
+   */
+  async appelerAction(
+    chemin: string,
+    identifiantAction: string,
+    champs: Record<string, string | string[]> = {}
+  ): Promise<Reponse & { redirection: string | null }> {
+    const corps = new FormData();
+    for (const [nom, valeur] of Object.entries(champs)) {
+      if (Array.isArray(valeur)) for (const v of valeur) corps.append(`_1_${nom}`, v);
+      else corps.append(`_1_${nom}`, valeur);
+    }
+    // La racine en DERNIER : voir l'avertissement ci-dessus.
+    corps.append("0", JSON.stringify(["$undefined", "$K1"]));
+
+    const reponse = await fetch(this.base + chemin, {
+      method: "POST",
+      headers: { cookie: this.enTete(), "Next-Action": identifiantAction },
+      body: corps,
+      redirect: "manual",
+    });
+    this.absorber(reponse);
+
+    // Une action qui redirige ne répond PAS 303 : le navigateur doit d'abord
+    // recevoir le flux, donc Next annonce la destination dans un en-tête et laisse
+    // le routeur client naviguer. Sans le lire, un test de création n'aurait aucun
+    // moyen de connaître l'identifiant de l'OM créé.
+    const annonce = reponse.headers.get("x-action-redirect");
+    return {
+      statut: reponse.status,
+      emplacement: reponse.headers.get("location"),
+      corps: await reponse.text(),
+      // L'en-tête porte parfois un mode de navigation suffixé (« ;push »).
+      redirection: annonce ? annonce.split(";")[0] : reponse.headers.get("location"),
+    };
+  }
+
+  /**
    * Soumet le formulaire de `chemin` qui contient `marqueur`, en y ajoutant
    * `champs`. Enchaîne lecture de la page, isolation du bon formulaire,
    * récupération de ses champs cachés et envoi.
@@ -161,7 +299,7 @@ export class Session {
   async soumettreFormulaire(
     chemin: string,
     marqueur: string,
-    champs: Record<string, string> = {}
+    champs: Record<string, string | string[]> = {}
   ): Promise<Reponse> {
     const page = await this.obtenir(chemin);
     if (page.statut !== 200) {
@@ -351,3 +489,68 @@ export function lienMotDePasse(reponse: Reponse): string | null {
 }
 
 export { COOKIE_ACCES, COOKIE_RENOUVELLEMENT };
+
+// ---------------------------------------------------------------------------
+// Identifiant d'une Server Action
+// ---------------------------------------------------------------------------
+
+/** Une lecture des morceaux compilés suffit pour toute la suite. */
+const identifiantsActions = new Map<string, string>();
+
+/**
+ * Identifiant `Next-Action` d'une Server Action, retrouvé dans le paquet compilé.
+ *
+ * ── Pourquoi le chercher, et pourquoi c'est fiable ─────────────────────────────
+ *
+ * Cet identifiant est un condensé calculé à la compilation : il n'existe ni dans le
+ * code source ni dans aucun manifeste nommé. Il est en revanche écrit en clair dans
+ * les morceaux JavaScript envoyés au navigateur, **accompagné du nom de l'export** —
+ * Next le passe à `createServerReference` pour produire des messages d'erreur
+ * lisibles :
+ *
+ *     createServerReference)("60482081…", r.callServer, void 0,
+ *                            r.findSourceMapURL, "actionCreerOM")
+ *
+ * C'est ce nom qui rend la recherche sûre : on ne retient pas « le premier
+ * identifiant trouvé », on retient celui qui porte le nom demandé. Un export
+ * renommé ou disparu fait échouer le test au lieu d'en appeler un autre.
+ *
+ * ⚠️ Lit le répertoire de compilation des tests (`DOSSIER_BUILD`), donc exige que
+ * `tests/aide/preparer.mts` ait tourné — ce que `npm run test:e2e` fait avant tout.
+ */
+export async function idAction(nomExport: string): Promise<string> {
+  const connu = identifiantsActions.get(nomExport);
+  if (connu) return connu;
+
+  const racine = path.join(process.cwd(), DOSSIER_BUILD, "static");
+  let fichiers: string[];
+  try {
+    fichiers = (await readdir(racine, { recursive: true }))
+      .filter((f) => f.endsWith(".js"))
+      .map((f) => path.join(racine, f));
+  } catch {
+    throw new Error(
+      `Répertoire de compilation « ${racine} » introuvable. Lancez ` +
+        `\`npx tsx tests/aide/preparer.mts\` (ou \`npm run test:e2e\`) d'abord.`
+    );
+  }
+
+  // Le nom est ancré à la fin : `[^)]*` ne peut donc pas franchir la parenthèse
+  // fermante et rattacher l'identifiant d'un appel voisin.
+  const motif = new RegExp(
+    `createServerReference\\)\\("([0-9a-f]+)"[^)]*"${nomExport}"\\)`
+  );
+
+  for (const fichier of fichiers) {
+    const trouve = motif.exec(await readFile(fichier, "utf8"));
+    if (trouve) {
+      identifiantsActions.set(nomExport, trouve[1]);
+      return trouve[1];
+    }
+  }
+
+  throw new Error(
+    `Aucune Server Action nommée « ${nomExport} » dans ${DOSSIER_BUILD}. ` +
+      `L'export a-t-il été renommé, ou n'est-il plus référencé par un composant client ?`
+  );
+}

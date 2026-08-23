@@ -119,6 +119,12 @@ enum TypeNotification {
   OM_ANNULE
   OM_REFUSE
   OM_EXPIRE
+  /// Ajouté le 23/08/2026. La date de retour est passée mais le délai de grâce
+  /// court encore : l'OM est TOUJOURS confirmable. Le cas visé n'est pas l'OM
+  /// abandonné, c'est celui que le DG a signé sans que personne ne le confirme
+  /// dans l'application — sans cet avertissement, il basculerait en EXPIRE et
+  /// paraîtrait caduc alors que la mission a bien eu lieu.
+  OM_BIENTOT_EXPIRE
   OM_EN_CONFLIT
   CONGE_A_VALIDER
   CONGE_VALIDE
@@ -417,6 +423,7 @@ model OrdreMission {
   participations Participation[]
 
   @@index([dateDepart], map: "idx_om_date_depart")
+  @@index([dateRetour], map: "idx_om_date_retour")
   @@index([codePays], map: "idx_om_pays")
   @@map("ordre_mission")
 }
@@ -510,6 +517,17 @@ model Participation {
 
   /// Péremption automatique : date de retour passée sans confirmation.
   expireLe DateTime? @map("expire_le") @db.Timestamptz(6)
+
+  /// Régularisation d'un OM périmé (23/08/2026) : le papier était signé, la
+  /// confirmation a simplement été oubliée. `expire_le` est CONSERVÉE à côté de
+  /// `confirme_le` — c'est ce couple qui rend le rattrapage lisible, sans
+  /// colonne supplémentaire.
+  ///
+  /// Motif FACULTATIF, contrairement à `refuse_motif` : un refus ôte quelque
+  /// chose à quelqu'un, donc il se justifie ; une régularisation constate un
+  /// fait acquis, donc elle se documente. L'exiger ferait saisir trente fois la
+  /// même phrase à qui rattrape trente OM oubliés.
+  regularisationMotif String? @map("regularisation_motif")
 
   ordreMission OrdreMission @relation(fields: [idOrdreMission], references: [id])
   employe      Employe      @relation(fields: [matricule], references: [matricule])
@@ -745,6 +763,14 @@ model Configuration {
   ageRetraite  Int @map("age_retraite") @db.SmallInt
   /// Taille des plages de numéros réservées par poste.
   taillePlageNumero Int @default(50) @map("taille_plage_numero") @db.SmallInt
+  /// Jours de grâce après la date de retour avant qu'un OM non confirmé bascule
+  /// en EXPIRE. Pendant ce délai, le balayage NOTIFIE au lieu de basculer.
+  ///
+  /// En configuration et non en constante : le critère du §4 s'applique — une
+  /// valeur que les RH peuvent vouloir ajuster n'a pas sa place dans le code.
+  /// Le CHECK `configuration_delai_peremption_positif` interdit 0, qui ferait
+  /// basculer l'OM dès le lendemain du retour.
+  delaiPeremptionJours Int @default(15) @map("delai_peremption_jours") @db.SmallInt
 
   modifieLe  DateTime @default(now()) @map("modifie_le") @db.Timestamptz(6)
   modifiePar BigInt?  @map("modifie_par")

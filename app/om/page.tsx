@@ -1,317 +1,270 @@
-"use client";
-
-import { useState, useMemo, Suspense } from "react";
+import { Suspense } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { mockOMs } from "@/lib/mockData";
-import { dureeEnJours } from "@/lib/dateUtils";
-import { DEPARTEMENTS, POSTES, libelleDepartement } from "@/lib/referentiels";
-import { PAYS_SUGGESTIONS, villesDuPays, paysEtVilleDeOM } from "@/lib/locations";
-import { filtreInputClass as inputClass, titrePageClass } from "@/lib/styles";
-import AutocompleteInput from "@/components/AutocompleteInput";
+import { FilePlus2, AlertTriangle } from "lucide-react";
+import { listerOM } from "@/lib/data/om";
+import { lireSession } from "@/lib/auth/garde";
+import { getStatuts, getDepartements, getPaysOptions } from "@/lib/data/referentiels";
+import { PAR_PAGE_OM } from "@/lib/numeroOM";
+import { formatDateFR } from "@/lib/dateUtils";
+import { libelleDepartement } from "@/lib/referentiels";
+import { boutonPrimaire, carteClass, titrePageClass, TAILLE_ICONE } from "@/lib/styles";
+import FiltresOM from "./FiltresOM";
+import BadgeStatut from "./BadgeStatut";
+import Pagination from "@/app/personnel/Pagination";
 
-const statutStyles: Record<string, string> = {
-  EN_ATTENTE: "bg-amber-200 text-amber-800",
-  CONFIRME: "bg-green-200 text-green-800",
-  ANNULE: "bg-red-200 text-red-800",
-};
+/**
+ * Liste des ordres de mission.
+ *
+ * ── Composant SERVEUR : ce que ça corrige ────────────────────────────────────
+ *
+ * L'écran précédent était client et lisait `mockOMs`, donc `localStorage`. Deux
+ * défauts que la bascule ferme :
+ *
+ *   1. **La portée était un navigateur.** Un OM créé sur un poste n'existait pas
+ *      sur l'autre. La détection de conflit lisant la même source, deux agents
+ *      pouvaient créer deux OM confirmés sur la même période pour le même employé
+ *      sans qu'aucun avertissement n'apparaisse — l'inverse exact de la garantie
+ *      annoncée par MODELE-DONNEES.md.
+ *   2. **Toutes les participations partaient au navigateur** avant d'y être
+ *      filtrées. Un agent recevait donc les missions de ses collègues, lisibles
+ *      dans l'onglet réseau, alors que l'écran ne lui en montrait qu'une partie.
+ *      Le filtrage est maintenant dans le SQL, sous la garde du DAL.
+ *
+ * ── Ce que cet écran ne fait plus ────────────────────────────────────────────
+ *
+ * `useEstMonte` disparaît : il n'existait que pour éviter une discordance
+ * d'hydratation en lisant `localStorage`. Sans `localStorage`, plus de discordance.
+ */
 
-// `useSearchParams` fait basculer tout l'arbre jusqu'à la frontière <Suspense>
-// la plus proche en rendu côté client. Sans cette frontière, `next build`
-// échoue au prérendu de cette route (erreur « missing-suspense-with-csr-bailout ») —
-// invisible en `next dev`, où les routes sont rendues à la demande.
-// La liste vit donc dans ListeOM, et la page n'est que son enveloppe.
-export default function OMListPage() {
-  return (
-    <Suspense fallback={<SqueletteListe />}>
-      <ListeOM />
-    </Suspense>
-  );
+export const metadata = { title: "Ordres de mission — EDC OM" };
+
+/** Paramètres d'URL reconnus par cet écran. */
+interface Recherche {
+  q?: string;
+  statut?: string;
+  poste?: string;
+  direction?: string;
+  pays?: string;
+  ville?: string;
+  debut?: string;
+  fin?: string;
+  dureeMin?: string;
+  dureeMax?: string;
+  matricule?: string;
+  bloques?: string;
+  page?: string;
 }
 
-// Rendu à la place de la liste dans le HTML initial : on garde l'ossature de
-// la page (fond, titre) pour éviter un écran vide au chargement.
-function SqueletteListe() {
+export default async function OMListePage({
+  searchParams,
+}: {
+  searchParams: Promise<Recherche>;
+}) {
+  const filtres = await searchParams;
+
+  // Les référentiels sont chargés ici et non dans la barre : celle-ci est un
+  // composant client, qui ne peut pas importer le DAL.
+  const [statuts, departements, pays, session] = await Promise.all([
+    getStatuts(),
+    getDepartements(),
+    getPaysOptions(),
+    lireSession(),
+  ]);
+
   return (
-    <div className="min-h-full w-full bg-blue-50 flex flex-col gap-8 p-10">
-      <h1 className={titrePageClass}>Ordres de mission</h1>
-      <p className="text-sm text-gray-500">Chargement de la liste…</p>
+    <div className="flex min-h-full w-full flex-col gap-6 bg-blue-50 p-6 sm:p-10">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <h1 className={titrePageClass}>Ordres de mission</h1>
+        <Link href="/om/nouveau" className={boutonPrimaire}>
+          <FilePlus2 size={TAILLE_ICONE} aria-hidden="true" />
+          Nouvel ordre de mission
+        </Link>
+      </div>
+
+      {/* `useSearchParams` dans la barre exige une frontière <Suspense> : sans
+          elle, `next build` échoue au prérendu (« missing-suspense-with-csr-bailout »),
+          défaut invisible en `next dev` où les routes sont rendues à la demande. */}
+      <Suspense fallback={<div className="h-10" />}>
+        <FiltresOM
+          statuts={statuts}
+          departements={departements}
+          pays={pays}
+          estAdministrateur={session?.role === "ADMINISTRATEUR"}
+        />
+      </Suspense>
+
+      {/* La `key` dépend des filtres : c'est ce qui fait réapparaître le squelette
+          à chaque changement, au lieu de laisser l'ancienne liste affichée pendant
+          la nouvelle requête — ce qui donnerait l'impression que le filtre n'a pas
+          été pris en compte. */}
+      <Suspense key={JSON.stringify(filtres)} fallback={<SqueletteTableau />}>
+        <Tableau filtres={filtres} />
+      </Suspense>
     </div>
   );
 }
 
-function ListeOM() {
-  // Pré-remplissage depuis l'URL — utilisé par les pages de rapports
-  // (carte/frise/pyramide) pour arriver ici avec le bon filtre déjà en
-  // place. Lu une seule fois à l'ouverture (useState paresseux) : après
-  // coup, c'est l'utilisateur qui pilote les filtres, pas l'URL.
-  const searchParams = useSearchParams();
-  const [filtreNom, setFiltreNom] = useState("");
-  const [filtrePays, setFiltrePays] = useState(() => searchParams.get("pays") ?? "");
-  const [filtreVille, setFiltreVille] = useState("");
-  const [filtrePoste, setFiltrePoste] = useState("");
-  const [filtreDepartement, setFiltreDepartement] = useState("");
-  const [filtreMatricule, setFiltreMatricule] = useState(() => searchParams.get("matricule") ?? "");
-  const [periodeDebut, setPeriodeDebut] = useState(() => searchParams.get("debut") ?? "");
-  const [periodeFin, setPeriodeFin] = useState(() => searchParams.get("fin") ?? "");
-  const [dureeMin, setDureeMin] = useState("");
-  const [dureeMax, setDureeMax] = useState("");
-  const [filtreStatut, setFiltreStatut] = useState("TOUS");
+/** Entier d'un paramètre d'URL, ou `undefined` — jamais `NaN`, que le DAL rejette. */
+function entier(valeur: string | undefined): number | undefined {
+  if (!valeur?.trim()) return undefined;
+  const n = Number.parseInt(valeur, 10);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
 
-  // Un OM peut concerner plusieurs employés — la liste affiche une ligne
-  // par participant, chacune renvoyant vers son document dans le détail.
-  const lignes = mockOMs.flatMap((om) => om.participants.map((participant) => ({ om, participant })));
-
-  // Noms réellement présents dans les données, pour l'autocomplétion. Le
-  // useMemo est nécessaire : AutocompleteInput met en cache les formes
-  // normalisées dans une WeakMap indexée par la référence du tableau, qu'un
-  // tableau recréé à chaque rendu invaliderait.
-  const nomsSuggeres = useMemo(
-    () =>
-      [...new Set(lignes.map(({ participant }) => participant.nom).filter(Boolean))].sort((a, b) =>
-        a!.localeCompare(b!, "fr")
-      ) as string[],
-    [lignes]
-  );
-
-  const villesDuPaysFiltre = useMemo(() => villesDuPays(filtrePays), [filtrePays]);
-
-  const changerPays = (valeur: string) => {
-    setFiltrePays(valeur);
-    setFiltreVille(""); // le pays change -> la ville sélectionnée n'a plus de sens
-  };
-
-  const lignesFiltrees = lignes.filter(({ om, participant }) => {
-    const matchNom = participant.nom?.toLowerCase().includes(filtreNom.toLowerCase());
-
-    // Poste et département viennent de référentiels fermés (listes
-    // déroulantes) : on compare à l'identique, pas en "contient" — sinon
-    // "Directeur" remonterait aussi "Directeur Général" et "Directeur
-    // Général Adjoint".
-    const matchPoste = filtrePoste === "" || participant.poste === filtrePoste;
-    const matchDepartement = filtreDepartement === "" || participant.affectation === filtreDepartement;
-
-    // La saisie pays/ville reste libre (autocomplétion), donc "contient".
-    const { pays, ville } = paysEtVilleDeOM(om);
-    const matchPays = pays.toLowerCase().includes(filtrePays.toLowerCase());
-    const matchVille = ville.toLowerCase().includes(filtreVille.toLowerCase());
-
-    const matchStatut = filtreStatut === "TOUS" || participant.statut === filtreStatut;
-
-    // Exact, contrairement aux autres champs texte : c'est un identifiant,
-    // pas une recherche libre — vient du clic sur un employé dans le modal
-    // de la pyramide, jamais tapé à la main.
-    const matchMatricule = filtreMatricule === "" || participant.matricule === filtreMatricule;
-
-    const matchPeriodeDebut = periodeDebut === "" || (om.dateDepart ?? "") >= periodeDebut;
-    const matchPeriodeFin = periodeFin === "" || (om.dateDepart ?? "") <= periodeFin;
-
-    const duree = dureeEnJours(om.dateDepart, om.dateRetour);
-    const matchDureeMin = dureeMin === "" || (duree !== null && duree >= Number(dureeMin));
-    const matchDureeMax = dureeMax === "" || (duree !== null && duree <= Number(dureeMax));
-
-    return (
-      matchNom &&
-      matchPays &&
-      matchVille &&
-      matchPoste &&
-      matchDepartement &&
-      matchStatut &&
-      matchMatricule &&
-      matchPeriodeDebut &&
-      matchPeriodeFin &&
-      matchDureeMin &&
-      matchDureeMax
-    );
+async function Tableau({ filtres }: { filtres: Recherche }) {
+  const { lignes, total, page, nombrePages } = await listerOM({
+    page: entier(filtres.page) ?? 1,
+    recherche: filtres.q,
+    statut: filtres.statut,
+    codeStatut: filtres.poste,
+    codeDepartement: filtres.direction,
+    pays: filtres.pays,
+    ville: filtres.ville,
+    debut: filtres.debut,
+    fin: filtres.fin,
+    dureeMin: entier(filtres.dureeMin),
+    dureeMax: entier(filtres.dureeMax),
+    matricule: filtres.matricule,
+    bloquesSeulement: filtres.bloques === "1",
   });
 
-  return (
-    <div className="min-h-full w-full bg-blue-50 flex flex-col gap-8 p-10">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <h1 className={titrePageClass}>
-          Ordres de mission
-        </h1>
-        <Link
-          href="/om/nouveau"
-          className="py-2 px-5 rounded-full bg-blue-700 hover:bg-blue-800 text-white
-                     shadow-md shadow-blue-950/20 hover:scale-105 transition-all duration-300"
-        >
-          + Nouvel ordre de mission
-        </Link>
-      </div>
+  if (lignes.length === 0) {
+    // Une page vide au-delà de la dernière n'est pas la même chose qu'un filtre
+    // sans résultat : dans un cas il faut revenir en arrière, dans l'autre élargir
+    // la recherche. Les confondre enverrait l'utilisateur au mauvais endroit.
+    const auDela = total > 0 && page > nombrePages;
 
-      {filtreMatricule && (
-        <div className="bg-amber-100 border border-amber-300 rounded-xl px-4 py-2 flex items-center justify-between text-sm text-amber-800">
-          <span>
-            Filtré sur l&apos;employé {filtreMatricule} — venu d&apos;un rapport.
-          </span>
-          <button onClick={() => setFiltreMatricule("")} className="underline hover:no-underline">
-            Retirer ce filtre
-          </button>
+    return (
+      <div className={carteClass}>
+        {auDela ? (
+          <p className="text-sm text-gray-600">
+            Cette page n&apos;existe pas : la liste n&apos;en compte que {nombrePages}.{" "}
+            <Link href="/om" className="text-blue-700 underline">
+              Revenir à la première
+            </Link>
+            .
+          </p>
+        ) : (
+          <p className="text-sm text-gray-600">
+            Aucun ordre de mission ne correspond. Élargissez la recherche, ou{" "}
+            <Link href="/om/nouveau" className="text-blue-700 underline">
+              créez un ordre de mission
+            </Link>
+            .
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  const bloques = lignes.filter((l) => l.blocageMotif !== null).length;
+
+  return (
+    <>
+      {bloques > 0 && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
+          <AlertTriangle size={18} aria-hidden="true" className="mt-0.5 shrink-0" />
+          <p>
+            <strong>
+              {bloques} participation{bloques > 1 ? "s" : ""} bloquée
+              {bloques > 1 ? "s" : ""} sur cette page.
+            </strong>{" "}
+            Un conflit de période avec une mission confirmée empêche la confirmation.
+            Le document reste imprimable, mais il ne doit pas partir à la signature en
+            l&apos;état.
+          </p>
         </div>
       )}
 
-      {/* Filtres */}
-      <div className="bg-white/70 rounded-2xl shadow-md shadow-blue-950/10 p-6 flex flex-wrap gap-3 items-end">
-        <div className="w-52">
-          <AutocompleteInput
-            value={filtreNom}
-            onChange={setFiltreNom}
-            suggestions={nomsSuggeres}
-            placeholder="Nom"
-          />
-        </div>
-
-        <select
-          value={filtrePoste}
-          onChange={(e) => setFiltrePoste(e.target.value)}
-          className={inputClass}
-        >
-          <option value="">Tous les postes</option>
-          {POSTES.map((p) => (
-            <option key={p.valeur} value={p.valeur}>
-              {p.libelle}
-            </option>
-          ))}
-        </select>
-
-        <select
-          value={filtreDepartement}
-          onChange={(e) => setFiltreDepartement(e.target.value)}
-          className={inputClass}
-        >
-          <option value="">Tous les départements</option>
-          {DEPARTEMENTS.map((d) => (
-            <option key={d.valeur} value={d.valeur}>
-              {d.libelle}
-            </option>
-          ))}
-        </select>
-
-        {/* Même cascade que le formulaire de création : la ville ne se
-            choisit qu'une fois le pays connu. */}
-        <div className="w-52">
-          <AutocompleteInput
-            value={filtrePays}
-            onChange={changerPays}
-            suggestions={PAYS_SUGGESTIONS}
-            placeholder="Pays"
-          />
-        </div>
-        <div className="w-52">
-          <AutocompleteInput
-            value={filtreVille}
-            onChange={setFiltreVille}
-            suggestions={villesDuPaysFiltre}
-            disabled={!filtrePays}
-            placeholder={filtrePays ? "Ville" : "Choisis d'abord un pays"}
-          />
-        </div>
-
-        <label className="flex flex-col gap-1 text-xs text-amber-700">
-          Période — du
-          <input
-            type="date"
-            value={periodeDebut}
-            onChange={(e) => setPeriodeDebut(e.target.value)}
-            className={inputClass}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-amber-700">
-          au
-          <input
-            type="date"
-            value={periodeFin}
-            onChange={(e) => setPeriodeFin(e.target.value)}
-            className={inputClass}
-          />
-        </label>
-
-        <input
-          type="number"
-          placeholder="Durée min (j.)"
-          value={dureeMin}
-          onChange={(e) => setDureeMin(e.target.value)}
-          className={`${inputClass} w-36`}
-        />
-        <input
-          type="number"
-          placeholder="Durée max (j.)"
-          value={dureeMax}
-          onChange={(e) => setDureeMax(e.target.value)}
-          className={`${inputClass} w-36`}
-        />
-
-        <select
-          value={filtreStatut}
-          onChange={(e) => setFiltreStatut(e.target.value)}
-          className={inputClass}
-        >
-          <option value="TOUS">Tous les statuts</option>
-          <option value="EN_ATTENTE">En attente</option>
-          <option value="CONFIRME">Confirmé</option>
-          <option value="ANNULE">Annulé</option>
-        </select>
-      </div>
-
-      {/* Liste */}
-      <div className="bg-white rounded-2xl shadow-md shadow-blue-950/10 overflow-hidden">
-        <table className="w-full text-sm">
+      <div className={`${carteClass} overflow-x-auto p-0`}>
+        <table className="w-full text-sm tabular-nums">
+          <caption className="sr-only">
+            Ordres de mission, {total} participation{total > 1 ? "s" : ""} au total, page{" "}
+            {page} sur {nombrePages}
+          </caption>
           <thead>
-            <tr className="bg-blue-500 text-white">
-              <th className="text-left py-3 px-4">Nom</th>
-              <th className="text-left py-3 px-4">Poste</th>
-              <th className="text-left py-3 px-4">Département</th>
-              <th className="text-left py-3 px-4">Destination</th>
-              <th className="text-left py-3 px-4">Départ</th>
-              <th className="text-left py-3 px-4">Retour</th>
-              <th className="text-left py-3 px-4">Durée</th>
-              <th className="text-left py-3 px-4">Statut</th>
+            <tr className="border-b border-blue-200 text-left text-blue-900">
+              {/* `scope="col"` : sans lui, un lecteur d'écran n'associe pas les
+                  cellules à leur en-tête, et le tableau devient une suite de mots. */}
+              <th scope="col" className="px-4 py-3 font-semibold">N° d&apos;OM</th>
+              <th scope="col" className="px-4 py-3 font-semibold">Nom et prénoms</th>
+              <th scope="col" className="px-4 py-3 font-semibold">Fonction</th>
+              <th scope="col" className="px-4 py-3 font-semibold">Direction</th>
+              <th scope="col" className="px-4 py-3 font-semibold">Destination</th>
+              <th scope="col" className="px-4 py-3 font-semibold">Départ</th>
+              <th scope="col" className="px-4 py-3 font-semibold">Retour</th>
+              <th scope="col" className="px-4 py-3 font-semibold">Durée</th>
+              <th scope="col" className="px-4 py-3 font-semibold">État</th>
             </tr>
           </thead>
           <tbody>
-            {lignesFiltrees.map(({ om, participant }, i) => (
+            {lignes.map((l) => (
+              // La clé est le couple (mission, matricule) : c'est la clé primaire de
+              // `participation`. L'ancien écran utilisait `participant.id`, qui
+              // n'existe plus — la table n'a pas d'identifiant de substitution.
               <tr
-                key={participant.id}
-                className={`${i % 2 === 0 ? "bg-white" : "bg-blue-50"} hover:bg-blue-100 transition-colors`}
+                key={`${l.idOM}-${l.matricule}`}
+                className="border-b border-blue-100 last:border-0 hover:bg-blue-50/60"
               >
-                <td className="py-3 px-4">
+                <td className="px-4 py-3 font-mono">
                   <Link
-                    href={`/om/${om.id}?participant=${participant.id}`}
-                    className="text-blue-700 font-medium hover:underline"
+                    href={`/om/${l.idOM}?participant=${encodeURIComponent(l.matricule)}`}
+                    className="text-blue-700 hover:underline"
                   >
-                    {participant.nom}
+                    {l.numeroOM}
                   </Link>
                 </td>
-                <td className="py-3 px-4">{participant.poste}</td>
-                <td
-                  className="py-3 px-4"
-                  title={libelleDepartement(participant.affectation)}
-                >
-                  {participant.affectation}
+                <td className="px-4 py-3">
+                  <span className="font-medium">{l.nom}</span> {l.prenoms}
+                  <span className="ml-2 font-mono text-xs text-slate-500">{l.matricule}</span>
                 </td>
-                <td className="py-3 px-4">{om.destination}</td>
-                <td className="py-3 px-4">{om.dateDepart}</td>
-                <td className="py-3 px-4">{om.dateRetour}</td>
-                <td className="py-3 px-4">{dureeEnJours(om.dateDepart, om.dateRetour)} j.</td>
-                <td className="py-3 px-4">
-                  <span
-                    className={`px-2 py-1 rounded-full text-xs font-medium ${statutStyles[participant.statut] ?? ""}`}
-                  >
-                    {participant.statut}
-                  </span>
+                <td className="px-4 py-3">{l.fonction}</td>
+                <td className="px-4 py-3" title={libelleDepartement(l.departement)}>
+                  {l.departement}
+                </td>
+                <td className="px-4 py-3">{l.destination}</td>
+                <td className="px-4 py-3">{formatDateFR(l.dateDepart)}</td>
+                <td className="px-4 py-3">{formatDateFR(l.dateRetour)}</td>
+                <td className="px-4 py-3">{l.dureeJours} j.</td>
+                <td className="px-4 py-3">
+                  <BadgeStatut statut={l.statut} bloque={l.blocageMotif !== null} />
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-
-        {lignesFiltrees.length === 0 && (
-          <p className="text-center text-amber-700 py-8">
-            Aucun ordre de mission ne correspond aux filtres.
-          </p>
-        )}
       </div>
+
+      <Pagination
+        page={page}
+        nombrePages={nombrePages}
+        total={total}
+        parPage={PAR_PAGE_OM}
+        base="/om"
+        libelle="participation"
+        parametres={{
+          q: filtres.q,
+          statut: filtres.statut,
+          poste: filtres.poste,
+          direction: filtres.direction,
+          pays: filtres.pays,
+          ville: filtres.ville,
+          debut: filtres.debut,
+          fin: filtres.fin,
+          dureeMin: filtres.dureeMin,
+          dureeMax: filtres.dureeMax,
+          matricule: filtres.matricule,
+          bloques: filtres.bloques,
+        }}
+      />
+    </>
+  );
+}
+
+function SqueletteTableau() {
+  return (
+    <div className={carteClass}>
+      <p className="text-sm text-gray-500">Chargement des ordres de mission…</p>
     </div>
   );
 }
