@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useMemo, useActionState } from "react";
+import { useRouter } from "next/navigation";
 import { ulid } from "ulid";
-import { Trash2, UserPlus, AlertTriangle } from "lucide-react";
+import { Trash2, UserPlus, AlertTriangle, X } from "lucide-react";
 import { villesDuPays } from "@/lib/locations";
 import { useBrouillonNonEnregistre } from "@/contexts/brouillonContext";
 import {
@@ -12,8 +13,11 @@ import {
   titrePageClass,
   boutonPrimaire,
   boutonSecondaire,
+  conteneurFormClass,
+  conteneurLargeClass,
 } from "@/lib/styles";
 import AutocompleteInput from "@/components/AutocompleteInput";
+import Confirmation from "@/components/Confirmation";
 import OMPreview from "@/components/OMPreview";
 import RetourVers from "@/components/RetourVers";
 import { lignesVisasVierges } from "@/lib/buildDocument";
@@ -95,6 +99,7 @@ type Participant = DonneesFormulaireOM["employes"][number];
 export default function FormulaireOM({ donnees }: { donnees: DonneesFormulaireOM }) {
   const { activer: signalerBrouillon, desactiver: effacerBrouillon } =
     useBrouillonNonEnregistre();
+  const router = useRouter();
 
   /**
    * ULID, produit à la VALIDATION et conservé en état.
@@ -139,6 +144,8 @@ export default function FormulaireOM({ donnees }: { donnees: DonneesFormulaireOM
 
   const [etape, setEtape] = useState<"formulaire" | "apercu">("formulaire");
   const [erreursChamps, setErreursChamps] = useState<ErreursChampsOM>({});
+  /** Question posée par le bouton « Annuler ». */
+  const [questionAbandon, setQuestionAbandon] = useState(false);
 
   const [etatServeur, enregistrer, enregistrementEnCours] = useActionState(
     actionCreerOM,
@@ -154,6 +161,26 @@ export default function FormulaireOM({ donnees }: { donnees: DonneesFormulaireOM
   // Toujours désactivé en quittant la page, quelle que soit la raison — sinon un
   // brouillon abandonné ici déclencherait la confirmation sur une tout autre page.
   useEffect(() => () => effacerBrouillon(), [effacerBrouillon]);
+
+  /**
+   * Vrai s'il y a quelque chose à perdre en quittant.
+   *
+   * Plus large que `signalerBrouillon`, qui ne regarde que les participants :
+   * quelqu'un qui a saisi une destination, un motif et des dates sans avoir encore
+   * ajouté de participant a bien travaillé, et le lui faire perdre sans question
+   * serait le même défaut. À l'inverse, un formulaire intact ne pose aucune
+   * question — `lieuEmission` est préréglé et ne compte donc pas.
+   */
+  const aDeLaMatiere =
+    participants.length > 0 ||
+    [paysDestination, villeDestination, motif, financement, moyenTransport, dateDepart, dateRetour, dateEmission]
+      .some((v) => v.trim() !== "");
+
+  /** Abandonne la saisie et retourne à la liste. */
+  const quitterSansEnregistrer = () => {
+    effacerBrouillon();
+    router.push("/om");
+  };
 
   // ── Dérivés ───────────────────────────────────────────────────────────────
 
@@ -302,13 +329,13 @@ export default function FormulaireOM({ donnees }: { donnees: DonneesFormulaireOM
     numeroOM: "— attribué à l'enregistrement —",
     nom: p.nom,
     prenoms: p.prenoms,
-    grade: p.grade,
+    grade: p.grade ?? undefined,
     affectation: p.codeDepartement,
     matricule: p.matricule,
     // La situation de famille n'est pas envoyée au navigateur (donnée personnelle
     // non nécessaire à la saisie) : le document imprimé la portera, elle est figée
     // par le serveur depuis la fiche.
-    situationFamille: "",
+    situationFamille: p.situationFamille ?? "",
     indice: "",
     destination: villeDestination
       ? `${paysDestination}, ${villeDestination}`
@@ -331,7 +358,7 @@ export default function FormulaireOM({ donnees }: { donnees: DonneesFormulaireOM
 
   if (etape === "apercu") {
     return (
-      <div className="flex min-h-full w-full flex-col gap-8 bg-blue-50 p-6 sm:p-10">
+      <div className={`${conteneurLargeClass} gap-8`}>
         <h1 className={titrePageClass}>
           Aperçu — {participants.length} document{participants.length > 1 ? "s" : ""}
         </h1>
@@ -418,7 +445,7 @@ export default function FormulaireOM({ donnees }: { donnees: DonneesFormulaireOM
 
   return (
     <div className="min-h-full w-full bg-blue-50">
-      <div className="mx-auto flex max-w-4xl flex-col gap-8 p-6 sm:p-10">
+      <div className={`${conteneurFormClass} gap-8`}>
         <RetourVers
           href="/om"
           libelle="Retour à la liste des ordres de mission"
@@ -540,10 +567,13 @@ export default function FormulaireOM({ donnees }: { donnees: DonneesFormulaireOM
             </div>
 
             <div data-error={marque("villeDestination")}>
+              {/* Facultative depuis le 24/08/2026 : c'est le PAYS qui donne la
+                  zone, donc l'indemnité. Le placeholder le dit, plutôt qu'un
+                  astérisque en creux que personne ne remarque. */}
               <AutocompleteInput
                 placeholder={
                   paysDestination
-                    ? "Ville de destination"
+                    ? "Ville de destination (facultative)"
                     : "Choisissez d'abord un pays"
                 }
                 value={villeDestination}
@@ -564,8 +594,11 @@ export default function FormulaireOM({ donnees }: { donnees: DonneesFormulaireOM
           )}
 
           <div data-error={marque("motif")}>
+            {/* Facultatif depuis le 24/08/2026 : le gabarit imprime « Motif et
+                références » suivi d'une ligne à compléter, qui se remplit au
+                stylo. L'exiger poussait à taper « RAS ». */}
             <textarea
-              placeholder="Motif et références de la mission"
+              placeholder="Motif et références de la mission (facultatif)"
               value={motif}
               onChange={(e) => setMotif(e.target.value)}
               className={`${inputClass} min-h-24 w-full`}
@@ -599,8 +632,15 @@ export default function FormulaireOM({ donnees }: { donnees: DonneesFormulaireOM
               data-error={marque("dateDepart")}
             >
               Date de départ
+              {/* `min` : le navigateur grise les jours passés, au lieu de laisser
+                  saisir une date que la validation refusera. La valeur vient du
+                  SERVEUR (`donnees.dateMinimum`) et non d'un `new Date()` local —
+                  les deux « aujourd'hui » doivent être le même, sinon l'écran
+                  proposerait ce que le serveur rejette. Le contrôle reste
+                  rejoué à l'enregistrement : `min` est du confort, pas une garde. */}
               <input
                 type="date"
+                min={donnees.dateMinimum}
                 value={dateDepart}
                 onChange={(e) => setDateDepart(e.target.value)}
                 className={`${inputClass} ${erreursChamps.dateDepart ? "border-red-500" : ""}`}
@@ -613,8 +653,11 @@ export default function FormulaireOM({ donnees }: { donnees: DonneesFormulaireOM
               data-error={marque("dateRetour")}
             >
               Date de retour
+              {/* Le retour ne peut précéder le départ : le plancher est le départ
+                  dès qu'il est saisi, aujourd'hui sinon. */}
               <input
                 type="date"
+                min={dateDepart || donnees.dateMinimum}
                 value={dateRetour}
                 onChange={(e) => setDateRetour(e.target.value)}
                 className={`${inputClass} ${erreursChamps.dateRetour ? "border-red-500" : ""}`}
@@ -672,19 +715,49 @@ export default function FormulaireOM({ donnees }: { donnees: DonneesFormulaireOM
           </p>
         </fieldset>
 
-        {/* Un seul bouton ici, et c'est délibéré.
-            COMMENTÉ (23/08/2026) — l'ancien écran posait un bouton « Annuler »
-            rouge à côté de « Valider ». En étape formulaire, il appelait
-            `handleAnnulerBrouillon`, qui remettait `etape` à « formulaire » —
-            c'est-à-dire à sa valeur courante. Il ne faisait donc RIEN, tout en
-            occupant le rang visuel d'une action destructrice. Quitter la page se
-            fait par le retour en haut, qui protège le brouillon.
-            <button onClick={handleAnnulerBrouillon}>Annuler</button> */}
+        {/* ── Abandon et validation ───────────────────────────────────────
+            COMMENTÉ (23/08/2026), RÉTABLI AUTREMENT (24/08/2026) — l'ancien
+            bouton « Annuler » appelait `handleAnnulerBrouillon`, qui remettait
+            `etape` à « formulaire », c'est-à-dire à sa valeur courante. Il ne
+            faisait donc RIEN tout en occupant le rang visuel d'une action
+            destructrice, et il avait été retiré pour cette raison.
+            <button onClick={handleAnnulerBrouillon}>Annuler</button>
+
+            Il revient parce que le besoin était réel, mais avec un effet qui
+            existe : abandonner la saisie et retourner à la liste. Il demande
+            confirmation dès qu'il y a de la matière à perdre, et ne la demande
+            pas quand le formulaire est vide — une question sans enjeu apprend à
+            cliquer « oui » sans lire. */}
         <div className="flex flex-wrap justify-center gap-4">
+          <button
+            type="button"
+            onClick={() => {
+              if (aDeLaMatiere) setQuestionAbandon(true);
+              else quitterSansEnregistrer();
+            }}
+            className={boutonSecondaire}
+          >
+            <X size={18} aria-hidden="true" />
+            Annuler
+          </button>
           <button type="button" onClick={valider} className={boutonPrimaire}>
             Valider et prévisualiser
           </button>
         </div>
+
+        <Confirmation
+          ouvert={questionAbandon}
+          titre="Abandonner cet ordre de mission ?"
+          message="La saisie en cours sera perdue. Aucun ordre de mission n'a encore été enregistré, donc aucun numéro n'aura été consommé."
+          libelleConfirmer="Abandonner la saisie"
+          libelleAnnuler="Continuer la saisie"
+          danger
+          onAnnuler={() => setQuestionAbandon(false)}
+          onConfirmer={() => {
+            setQuestionAbandon(false);
+            quitterSansEnregistrer();
+          }}
+        />
       </div>
     </div>
   );

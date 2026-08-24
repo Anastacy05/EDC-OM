@@ -6,7 +6,7 @@ import { lireSession } from "@/lib/auth/garde";
 import { lignesVisasVierges } from "@/lib/buildDocument";
 import { formatDateFR, dureeEnJours } from "@/lib/dateUtils";
 import { numeroCommeImprime, numeroPourGabarit } from "@/lib/numeroOM";
-import { titrePageClass, carteClass } from "@/lib/styles";
+import { titrePageClass, carteClass, conteneurFormClass } from "@/lib/styles";
 import type { OrdreMissionDocument } from "@/types/om";
 import RetourVers from "@/components/RetourVers";
 import OMPreview from "@/components/OMPreview";
@@ -89,18 +89,18 @@ export default async function OMDetailPage({ params, searchParams }: Parametres)
     numeroOM: numeroPourGabarit(document.numeroOM),
     nom: document.nom,
     prenoms: document.prenoms,
-    grade: document.grade,
+    grade: document.grade ?? undefined,
     affectation: document.affectation,
     matricule: document.matricule,
-    situationFamille: document.situationFamille,
+    situationFamille: document.situationFamille ?? undefined,
     indice: document.indice ?? undefined,
     destination: document.destination,
     viaPassage: document.viaPassage ?? undefined,
     // La MENTION est préfixée au motif, comme sur le document imprimé : le gabarit
     // n'a pas de balise dédiée, et l'aperçu doit montrer ce qui sera imprimé.
     motif: document.mentionStatut
-      ? `${document.mentionStatut} — ${document.motif}`
-      : document.motif,
+      ? `${document.mentionStatut}${document.motif ? ` — ${document.motif}` : ""}`
+      : document.motif ?? undefined,
     financement: document.financement ?? undefined,
     moyenTransport: document.moyenTransport ?? undefined,
     dateDepart: document.dateDepart,
@@ -119,133 +119,131 @@ export default async function OMDetailPage({ params, searchParams }: Parametres)
   };
 
   return (
-    <div className="min-h-full w-full bg-blue-50 py-10">
-      <div className="mx-auto flex max-w-[860px] flex-col gap-4 px-4">
-        <RetourVers href="/om" libelle="Retour à la liste des ordres de mission" />
-        <h1 className={titrePageClass}>Ordre de mission {courant.numeroOM}</h1>
+    <div className={`${conteneurFormClass} gap-4`}>
+      <RetourVers href="/om" libelle="Retour à la liste des ordres de mission" />
+      <h1 className={titrePageClass}>Ordre de mission {courant.numeroOM}</h1>
 
-        {/* Confirmation d'enregistrement. `existant` : le même brouillon a été
-            renvoyé (double-clic, reprise après coupure) et l'ULID a évité le
-            doublon — le dire évite que l'utilisateur croie avoir créé deux OM. */}
-        {cree && (
-          <p
-            role="status"
-            className="rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-900"
-          >
-            {cree === "existant"
-              ? "Cet ordre de mission avait déjà été enregistré : votre second envoi n'a créé aucun doublon."
-              : "Ordre de mission enregistré. Les numéros sont définitifs — le document peut partir à la signature."}
-          </p>
-        )}
+      {/* Confirmation d'enregistrement. `existant` : le même brouillon a été
+          renvoyé (double-clic, reprise après coupure) et l'ULID a évité le
+          doublon — le dire évite que l'utilisateur croie avoir créé deux OM. */}
+      {cree && (
+        <p
+          role="status"
+          className="rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-900"
+        >
+          {cree === "existant"
+            ? "Cet ordre de mission avait déjà été enregistré : votre second envoi n'a créé aucun doublon."
+            : "Ordre de mission enregistré. Les numéros sont définitifs — le document peut partir à la signature."}
+        </p>
+      )}
 
-        {conflits && (
-          <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            <Info size={18} aria-hidden="true" className="mt-0.5 shrink-0" />
-            <p>
-              <strong>
-                {conflits} chevauchement{Number(conflits) > 1 ? "s" : ""} avec un ordre de
-                mission en attente.
-              </strong>{" "}
-              Aucun des deux n&apos;est confirmé, donc rien n&apos;est bloqué : c&apos;est
-              l&apos;administrateur qui arbitrera à la confirmation. L&apos;auteur de
-              l&apos;autre mission en a été averti.
-            </p>
-          </div>
-        )}
-
-        {/* Navigation entre participants — par matricule, pas par index. Chaque
-            entrée est un LIEN : la page reste serveur, l'adresse est partageable,
-            et le bouton « précédent » du navigateur fait ce qu'on attend. */}
-        {detail.participants.length > 1 && (
-          <nav aria-label="Participants de la mission" className={`${carteClass} flex flex-wrap gap-2`}>
-            {detail.participants.map((p) => {
-              const actif = p.matricule === courant.matricule;
-              return (
-                <Link
-                  key={p.matricule}
-                  href={`/om/${id}?participant=${encodeURIComponent(p.matricule)}`}
-                  aria-current={actif ? "page" : undefined}
-                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm
-                              transition-colors duration-200 ${
-                                actif
-                                  ? "border-blue-600 bg-blue-600 text-white"
-                                  : "border-blue-300 bg-white text-blue-900 hover:bg-blue-50"
-                              }`}
-                >
-                  {p.nom} {p.prenoms}
-                  {p.blocageMotif && (
-                    <AlertTriangle size={13} aria-label="en conflit" className="shrink-0" />
-                  )}
-                </Link>
-              );
-            })}
-          </nav>
-        )}
-
-        {/* Le résumé : ce qu'on veut savoir sans lire le fac-similé. */}
-        <div className={`${carteClass} flex flex-col gap-3`}>
-          <div className="flex flex-wrap items-center gap-3">
-            <BadgeStatut statut={courant.statut} bloque={bloque} />
-            <span className="text-sm text-slate-600">
-              Sur le document :{" "}
-              <strong className="font-mono">N° {numeroCommeImprime(courant.numeroOM)}</strong>
-            </span>
-          </div>
-
-          <dl className="grid grid-cols-1 gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
-            <Ligne terme="Agent">
-              {courant.nom} {courant.prenoms}{" "}
-              <span className="font-mono text-xs text-slate-500">{courant.matricule}</span>
-            </Ligne>
-            <Ligne terme="Fonction à l'émission">{courant.fonction}</Ligne>
-            <Ligne terme="Destination">{detail.paysDestination}, {detail.villeDestination}</Ligne>
-            <Ligne terme="Période">
-              du {formatDateFR(detail.dateDepart)} au {formatDateFR(detail.dateRetour)}
-              {duree !== null && ` (${duree} j.)`}
-            </Ligne>
-            <Ligne terme="Indemnité journalière">
-              {courant.montantFraisFixeJournalier === null ? (
-                <span className="text-amber-800">Non calculée</span>
-              ) : (
-                <>
-                  {courant.montantFraisFixeJournalier.toLocaleString("fr-FR")} FCFA
-                  {duree !== null && (
-                    <span className="text-slate-500">
-                      {" "}
-                      — soit{" "}
-                      {(courant.montantFraisFixeJournalier * duree).toLocaleString("fr-FR")} FCFA
-                    </span>
-                  )}
-                </>
-              )}
-            </Ligne>
-            <Ligne terme="Motif">{detail.motif}</Ligne>
-          </dl>
-
-          {/* Le montant est FIGÉ à l'émission : le dire, sinon un écart avec le
-              barème courant passerait pour une erreur d'affichage. */}
-          <p className="text-xs text-slate-500">
-            L&apos;indemnité est celle du barème au jour de l&apos;émission. Elle n&apos;est
-            jamais recalculée : un montant qui changerait après signature ne
-            correspondrait plus au document signé.
+      {conflits && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <Info size={18} aria-hidden="true" className="mt-0.5 shrink-0" />
+          <p>
+            <strong>
+              {conflits} chevauchement{Number(conflits) > 1 ? "s" : ""} avec un ordre de
+              mission en attente.
+            </strong>{" "}
+            Aucun des deux n&apos;est confirmé, donc rien n&apos;est bloqué : c&apos;est
+            l&apos;administrateur qui arbitrera à la confirmation. L&apos;auteur de
+            l&apos;autre mission en a été averti.
           </p>
         </div>
+      )}
 
-        {/* Les actions sont réservées à l'administrateur. Un agent consulte et
-            télécharge — c'est la règle du DAL, répétée ici pour ne pas afficher des
-            boutons qui échoueraient tous. */}
-        {session.role === "ADMINISTRATEUR" && (
-          <div className={carteClass}>
-            <BlocActions
-              idOM={detail.id}
-              matricule={courant.matricule}
-              statut={courant.statut}
-              bloque={bloque}
-              expire={courant.statut === "EXPIRE"}
-            />
-          </div>
-        )}
+      {/* Navigation entre participants — par matricule, pas par index. Chaque
+          entrée est un LIEN : la page reste serveur, l'adresse est partageable,
+          et le bouton « précédent » du navigateur fait ce qu'on attend. */}
+      {detail.participants.length > 1 && (
+        <nav aria-label="Participants de la mission" className={`${carteClass} flex flex-wrap gap-2`}>
+          {detail.participants.map((p) => {
+            const actif = p.matricule === courant.matricule;
+            return (
+              <Link
+                key={p.matricule}
+                href={`/om/${id}?participant=${encodeURIComponent(p.matricule)}`}
+                aria-current={actif ? "page" : undefined}
+                className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm
+                            transition-colors duration-200 ${
+                              actif
+                                ? "border-blue-600 bg-blue-600 text-white"
+                                : "border-blue-300 bg-white text-blue-900 hover:bg-blue-50"
+                            }`}
+              >
+                {p.nom} {p.prenoms}
+                {p.blocageMotif && (
+                  <AlertTriangle size={13} aria-label="en conflit" className="shrink-0" />
+                )}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
+
+      {/* Le résumé : ce qu'on veut savoir sans lire le fac-similé. */}
+      <div className={`${carteClass} flex flex-col gap-3`}>
+        <div className="flex flex-wrap items-center gap-3">
+          <BadgeStatut statut={courant.statut} bloque={bloque} />
+          <span className="text-sm text-slate-600">
+            Sur le document :{" "}
+            <strong className="font-mono">N° {numeroCommeImprime(courant.numeroOM)}</strong>
+          </span>
+        </div>
+
+        <dl className="grid grid-cols-1 gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
+          <Ligne terme="Agent">
+            {courant.nom} {courant.prenoms}{" "}
+            <span className="font-mono text-xs text-slate-500">{courant.matricule}</span>
+          </Ligne>
+          <Ligne terme="Fonction à l'émission">{courant.fonction}</Ligne>
+          <Ligne terme="Destination">{detail.paysDestination}, {detail.villeDestination}</Ligne>
+          <Ligne terme="Période">
+            du {formatDateFR(detail.dateDepart)} au {formatDateFR(detail.dateRetour)}
+            {duree !== null && ` (${duree} j.)`}
+          </Ligne>
+          <Ligne terme="Indemnité journalière">
+            {courant.montantFraisFixeJournalier === null ? (
+              <span className="text-amber-800">Non calculée</span>
+            ) : (
+              <>
+                {courant.montantFraisFixeJournalier.toLocaleString("fr-FR")} FCFA
+                {duree !== null && (
+                  <span className="text-slate-500">
+                    {" "}
+                    — soit{" "}
+                    {(courant.montantFraisFixeJournalier * duree).toLocaleString("fr-FR")} FCFA
+                  </span>
+                )}
+              </>
+            )}
+          </Ligne>
+          <Ligne terme="Motif">{detail.motif}</Ligne>
+        </dl>
+
+        {/* Le montant est FIGÉ à l'émission : le dire, sinon un écart avec le
+            barème courant passerait pour une erreur d'affichage. */}
+        <p className="text-xs text-slate-500">
+          L&apos;indemnité est celle du barème au jour de l&apos;émission. Elle n&apos;est
+          jamais recalculée : un montant qui changerait après signature ne
+          correspondrait plus au document signé.
+        </p>
       </div>
+
+      {/* Les actions sont réservées à l'administrateur. Un agent consulte et
+          télécharge — c'est la règle du DAL, répétée ici pour ne pas afficher des
+          boutons qui échoueraient tous. */}
+      {session.role === "ADMINISTRATEUR" && (
+        <div className={carteClass}>
+          <BlocActions
+            idOM={detail.id}
+            matricule={courant.matricule}
+            statut={courant.statut}
+            bloque={bloque}
+            expire={courant.statut === "EXPIRE"}
+          />
+        </div>
+      )}
 
       {/* Le fac-similé, fidèle au document Word — lecture seule. */}
       <div className="mt-6">

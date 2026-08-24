@@ -9,6 +9,7 @@ import {
   type EtatFormulaireOM,
 } from "@/app/om/actions";
 import { boutonPrimaire, boutonSecondaire, boutonDanger, inputClass } from "@/lib/styles";
+import BoutonConfirme from "@/components/BoutonConfirme";
 
 /**
  * Actions d'une participation : confirmer, annuler, refuser.
@@ -35,6 +36,15 @@ import { boutonPrimaire, boutonSecondaire, boutonDanger, inputClass } from "@/li
  *
  * Le conflit est maintenant détecté par le serveur, dans la même transaction que
  * l'écriture, et rendu ici comme du contenu.
+ *
+ * ── La question est revenue, mais rendue (24/08/2026) ────────────────────────
+ *
+ * Supprimer `confirm()` avait supprimé la question avec lui : les trois
+ * transitions partaient au premier clic. Or elles sont peu réversibles — une
+ * confirmation engage l'agent et bloque les missions concurrentes, un refus est
+ * motivé et visible par lui. `BoutonConfirme` repose donc la question, dans un
+ * `<dialog>` : piège de focus, inertie de la page, et annonce correcte, ce
+ * qu'aucune des trois n'avait avec la boîte native.
  */
 export default function BlocActions({
   idOM,
@@ -127,9 +137,16 @@ export default function BlocActions({
             </label>
           )}
 
-          <button
-            type="submit"
-            disabled={!confirmable || confirmationEnCours}
+          <BoutonConfirme
+            titre={expire ? "Régulariser cette participation ?" : "Confirmer cette participation ?"}
+            message={
+              expire
+                ? "La mission est déjà passée : vous enregistrez après coup que le document a bien été signé. La participation repassera en « Confirmé »."
+                : "Vous enregistrez que l'ordre de mission est signé. L'agent est dès lors engagé sur ces dates, et toute autre mission qui les recouvre sera bloquée."
+            }
+            libelleConfirmer={expire ? "Régulariser" : "Confirmer"}
+            disabled={!confirmable}
+            enCours={confirmationEnCours}
             className={`${boutonPrimaire} disabled:cursor-not-allowed disabled:opacity-40`}
           >
             <CheckCircle2 size={18} aria-hidden="true" />
@@ -138,20 +155,24 @@ export default function BlocActions({
               : expire
                 ? "Régulariser (confirmer après péremption)"
                 : "Confirmer"}
-          </button>
+          </BoutonConfirme>
         </form>
 
         <form action={annuler}>
           <input type="hidden" name="idOM" value={idOM} />
           <input type="hidden" name="matricule" value={matricule} />
-          <button
-            type="submit"
-            disabled={!annulable || annulationEnCours}
+          <BoutonConfirme
+            titre="Annuler cette participation ?"
+            message="La participation passera en « Annulé » et ne comptera plus dans les conflits de période. Le document restera téléchargeable, avec la mention « ANNULÉ » — c'est une trace, pas une suppression."
+            libelleConfirmer="Annuler la participation"
+            danger
+            disabled={!annulable}
+            enCours={annulationEnCours}
             className={`${boutonSecondaire} disabled:cursor-not-allowed disabled:opacity-40`}
           >
             <CircleSlash size={18} aria-hidden="true" />
             {annulationEnCours ? "Annulation…" : "Annuler"}
-          </button>
+          </BoutonConfirme>
         </form>
       </div>
 
@@ -173,14 +194,17 @@ export default function BlocActions({
               className={`${inputClass} w-80`}
             />
           </label>
-          <button
-            type="submit"
-            disabled={refusEnCours}
+          <BoutonConfirme
+            titre="Refuser cet ordre de mission ?"
+            message="Le refus écarte la participation avant toute confirmation, et le motif saisi sera visible par l'agent. Le document restera téléchargeable avec la mention « REFUSÉ — SANS VALEUR »."
+            libelleConfirmer="Refuser"
+            danger
+            enCours={refusEnCours}
             className={`${boutonDanger} disabled:cursor-not-allowed disabled:opacity-40`}
           >
             <XCircle size={18} aria-hidden="true" />
             {refusEnCours ? "Refus…" : "Refuser"}
-          </button>
+          </BoutonConfirme>
         </form>
       )}
     </div>

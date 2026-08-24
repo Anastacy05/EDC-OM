@@ -57,7 +57,13 @@ const ROUTE_RENOUVELLEMENT = "/api/auth/renouveler";
  * nouvelle page un oubli possible.
  */
 const PUBLICS = [
-  "/", // page d'accueil : vitrine, ses boutons mènent à des pages protégées
+  // COMMENTÉ (24/08/2026) — `/` n'est plus public. La première ouverture de
+  // l'application doit arriver sur la CONNEXION, alors que cet écran montrait
+  // deux boutons qui, cliqués, redirigeaient vers elle : on demandait de choisir
+  // avant d'avoir le droit d'entrer. Et le mot « vitrine » était inexact —
+  // l'accueil porte désormais aussi les raccourcis d'administration, donc du
+  // contenu qui dépend du rôle.
+  // "/", // page d'accueil : vitrine, ses boutons mènent à des pages protégées
   "/connexion",
   "/mot-de-passe", // et ses sous-chemins : /mot-de-passe/<jeton>
 ];

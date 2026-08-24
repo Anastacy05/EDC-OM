@@ -18,6 +18,7 @@ import {
   EMETTEUR,
   MAX_PARTICIPANTS,
   STATUTS_ENGAGEANTS,
+  aujourdhuiLocal,
   mentionStatut,
   type OMValide,
 } from "@/lib/data/om.validation";
@@ -89,11 +90,11 @@ export interface OMParticipantDTO {
   matricule: string;
   nom: string;
   prenoms: string;
-  grade: string;
+  grade: string | null;
   fonction: string;
   codeStatut: string;
   departement: string;
-  situationFamille: string;
+  situationFamille: string | null;
   indice: string | null;
   montantFraisFixeJournalier: number | null;
   numeroOM: string;
@@ -111,7 +112,7 @@ export interface OMDetailDTO {
   codePays: string;
   villeDestination: string;
   viaPassage: string | null;
-  motif: string;
+  motif: string | null;
   financement: string | null;
   moyenTransport: string | null;
   dateDepart: string;
@@ -126,14 +127,14 @@ export interface OMDocumentDTO {
   numeroOM: string;
   nom: string;
   prenoms: string;
-  grade: string;
+  grade: string | null;
   affectation: string;
   matriculeEmploye: string;
-  situationFamille: string;
+  situationFamille: string | null;
   indice: string | null;
   destination: string;
   viaPassage: string | null;
-  motif: string;
+  motif: string | null;
   financement: string | null;
   moyenTransport: string | null;
   dateDepart: string;
@@ -275,7 +276,7 @@ async function employesPourOM(matricules: string[], retour: Date, configuration:
     where: { matricule: { in: matricules } },
     select: {
       matricule: true, nom: true, prenoms: true, grade: true, fonction: true,
-      codeStatut: true, codeDepartement: true, situationFamille: true, indice: true,
+      codeStatut: true, codeDepartement: true, departementLibre: true, situationFamille: true, indice: true,
       dateNaissance: true, actif: true, desactiveLe: true,
     },
   });
@@ -311,8 +312,8 @@ async function employesPourOM(matricules: string[], retour: Date, configuration:
 }
 
 function dtoParticipant(row: {
-  matricule: string; nomS: string; prenomsS: string; gradeS: string; fonctionS: string;
-  codeStatutS: string; codeDepartementS: string; situationFamilleS: string; indiceS: string | null;
+  matricule: string; nomS: string; prenomsS: string; gradeS: string | null; fonctionS: string;
+  codeStatutS: string; codeDepartementS: string; situationFamilleS: string | null; indiceS: string | null;
   montantFraisFixeJournalier: number | null; numeroOM: string; statut: string;
   blocageMotif: string | null; dateEmission: Date; lieuEmission: string;
 }): OMParticipantDTO {
@@ -393,7 +394,8 @@ export async function creerOrdreMission(valide: OMValide): Promise<ResultatCreat
         return {
           idOrdreMission: om.id, matricule, numeroOM: numeros.numeros[index],
           nomS: e.nom, prenomsS: e.prenoms, gradeS: e.grade, fonctionS: e.fonction,
-          codeStatutS: e.codeStatut, codeDepartementS: e.codeDepartement,
+          codeStatutS: e.codeStatut,
+          codeDepartementS: e.departementLibre ?? e.codeDepartement ?? "Direction non renseignée",
           situationFamilleS: e.situationFamille, indiceS: e.indice,
           montantFraisFixeJournalier: montants.get(matricule),
           nomEmetteur: EMETTEUR.nom, gradeEmetteur: EMETTEUR.grade,
@@ -480,7 +482,7 @@ export async function lireParticipation(idOM: string, matricule: string): Promis
   if (matricule !== "" && !om.participations.some((p) => p.matricule === matricule)) return null;
   return {
     id: String(om.id), ulid: om.ulid, paysDestination: om.pays.nomFr.trim(), codePays: om.codePays.trim(),
-    villeDestination: om.villeDestination, viaPassage: om.viaPassage, motif: om.motif,
+    villeDestination: om.villeDestination ?? "", viaPassage: om.viaPassage, motif: om.motif,
     financement: om.financement, moyenTransport: om.moyenTransport,
     dateDepart: versChampDate(om.dateDepart), dateRetour: versChampDate(om.dateRetour), creeLe: om.creeLe.toISOString(),
     // TOUS les participants, pour tout le monde : la navigation entre eux est ce qui
@@ -766,12 +768,13 @@ export interface DonneesFormulaireOM {
     matricule: string;
     nom: string;
     prenoms: string;
-    grade: string;
+    grade: string | null;
     fonction: string;
     codeStatut: string;
     /** Libellé du statut hiérarchique, pour l'affichage. */
     libelleStatut: string;
     codeDepartement: string;
+    situationFamille: string | null;
   }>;
   /** Nom français → code de zone, pour déduire la zone à la saisie. */
   zoneParPays: Record<string, number>;
@@ -782,6 +785,15 @@ export interface DonneesFormulaireOM {
   /** Lieu d'émission proposé par défaut. */
   ageRetraite: number;
   maxParticipants: number;
+  /**
+   * Aujourd'hui au format `AAAA-MM-JJ`, pour l'attribut `min` des saisies de date.
+   *
+   * Calculé par le SERVEUR, avec la fonction même que la validation utilise. Le
+   * calculer dans le navigateur donnerait deux définitions d'« aujourd'hui » qui
+   * peuvent différer d'un jour, et l'écran proposerait alors une date que le
+   * serveur refuse — en plus d'une discordance d'hydratation.
+   */
+  dateMinimum: string;
 }
 
 export async function lireDonneesFormulaireOM(): Promise<DonneesFormulaireOM> {
@@ -800,6 +812,8 @@ export async function lireDonneesFormulaireOM(): Promise<DonneesFormulaireOM> {
         grade: true,
         fonction: true,
         codeDepartement: true,
+        departementLibre: true,
+        situationFamille: true,
         codeStatut: true,
         statut: { select: { libelle: true } },
       },
@@ -833,13 +847,15 @@ export async function lireDonneesFormulaireOM(): Promise<DonneesFormulaireOM> {
       fonction: e.fonction,
       codeStatut: e.codeStatut,
       libelleStatut: e.statut.libelle,
-      codeDepartement: e.codeDepartement,
+      codeDepartement: e.departementLibre ?? e.codeDepartement ?? "Direction non renseignée",
+      situationFamille: e.situationFamille,
     })),
     zoneParPays,
     libellesZones,
     bareme: grille,
     ageRetraite: configuration.ageRetraite,
     maxParticipants: MAX_PARTICIPANTS,
+    dateMinimum: versChampDate(aujourdhuiLocal()),
   };
 }
 
@@ -937,13 +953,33 @@ export async function listerOM(filtres: FiltresOM = {}): Promise<ResultatListeOM
         OR lower(sans_accent(p.matricule)) LIKE lower(sans_accent(${motif}))
         OR p.numero_om LIKE ${motif}
       )
-    -- Départ décroissant : les missions les plus récentes d'abord, c'est l'ordre
-    -- dans lequel on consulte un état d'OM. Le numéro départage : il est UNIQUE,
-    -- donc l'ordre est TOTAL. Sans ça, deux pages peuvent répéter ou omettre une
-    -- ligne, l'ordre des égalités n'étant pas garanti d'une requête à l'autre.
+    -- ── Ordre de la liste (revu le 24/08/2026) ──────────────────────────────
+    --
+    -- 1. Les etats MORTS au fond. ANNULE, REFUSE et EXPIRE ne correspondent a
+    --    aucune mission qui va avoir lieu : ils n'engagent personne, ne
+    --    produisent aucun conflit, et ne demandent plus rien a l'administrateur.
+    --    Les intercaler par date les mettait au meme rang qu'une mission a
+    --    preparer. L'expression rend 1 pour ces trois statuts et 0 pour les
+    --    autres, et le tri croissant place donc les vivants d'abord.
+    --
+    --    ⚠️ La liste des trois doit rester d'accord avec STATUTS_ENGAGEANTS de
+    --    om.validation.ts, qui enumere les deux AUTRES ('EN_ATTENTE', 'CONFIRME').
+    --    Les deux ensembles sont complementaires : ajouter un sixieme statut
+    --    demande de trancher ici aussi.
+    --
+    -- 2. Depart decroissant : les missions les plus recentes d'abord, c'est
+    --    l'ordre dans lequel on consulte un etat d'OM.
+    --
+    -- 3. Le numero departage : il est UNIQUE, donc l'ordre est TOTAL. Sans ca,
+    --    deux pages peuvent repeter ou omettre une ligne, l'ordre des egalites
+    --    n'etant pas garanti d'une requete a l'autre.
+    --
     -- (⚠️ AUCUN accent grave dans ces commentaires : ils termineraient le
-    -- littéral de gabarit JavaScript.)
-    ORDER BY o.date_depart DESC, p.numero_om DESC
+    -- litteral de gabarit JavaScript.)
+    ORDER BY
+      (CASE WHEN p.statut IN ('ANNULE', 'REFUSE', 'EXPIRE') THEN 1 ELSE 0 END),
+      o.date_depart DESC,
+      p.numero_om DESC
     LIMIT ${PAR_PAGE_OM} OFFSET ${(page - 1) * PAR_PAGE_OM}
   `;
 

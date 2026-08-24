@@ -21,6 +21,19 @@ interface AutocompleteInputProps {
  * refiltre pas 148 000 entrées à chaque caractère, seulement une fois que
  * la frappe marque une pause. `useMemo` évite en plus tout recalcul si un
  * re-render est déclenché sans que `value`/`suggestions` aient changé.
+ *
+ * ── Deux modes, depuis le 24/08/2026 : PARCOURS et RECHERCHE ─────────────────
+ *
+ * Le défaut signalé à l'usage : une fois « Cameroun » choisi, revenir dans le
+ * champ n'affichait plus que « Cameroun » — la liste était filtrée sur la valeur
+ * en place. Pour reparcourir les autres pays, il fallait **effacer entièrement sa
+ * saisie**. Le champ ne servait donc qu'une fois.
+ *
+ * Le champ s'ouvre maintenant en **parcours** — liste non filtrée — à chaque
+ * entrée dans la zone (prise de focus *et* clic, parce qu'un second clic dans un
+ * champ déjà actif ne déclenche aucun `focus`). Dès la première frappe il bascule
+ * en **recherche**, et refiltre. On voit donc la liste sans rien effacer, et taper
+ * garde exactement le comportement d'avant.
  */
 
 // Les noms de villes/pays sont saisis sans accent la plupart du temps
@@ -64,6 +77,22 @@ function rang(candidatNormalise: string, recherche: string): number {
   return /[\s\-']/.test(candidatNormalise[position - 1]) ? DEBUT_DE_MOT : CONTIENT;
 }
 
+/**
+ * Nombre d'entrées rendues en mode PARCOURS.
+ *
+ * ⚠️ Une borne est indispensable, et son absence était un vrai défaut : la
+ * branche « saisie vide » renvoyait `suggestions` **sans découpe**, donc
+ * jusqu'à 148 000 `<li>` dans le DOM au premier focus d'un champ de ville. Le
+ * navigateur y passait plusieurs secondes.
+ *
+ * 200 plutôt que les 10 du mode recherche : la liste des pays en compte environ
+ * 250, donc on la voit pratiquement en entier, ce qui est la demande. Pour les
+ * villes, on montre les 200 premières et le pied de liste invite à préciser — la
+ * seule alternative honnête serait un rendu virtualisé, dont l'application n'a
+ * pas besoin ailleurs.
+ */
+const MAX_PARCOURS = 200;
+
 export default function AutocompleteInput({
   value,
   onChange,
@@ -75,6 +104,8 @@ export default function AutocompleteInput({
   const [ouvert, setOuvert] = useState(false);
   const [valeurDebounced, setValeurDebounced] = useState(value);
   const [indexActif, setIndexActif] = useState(-1);
+  /** Vrai tant que l'utilisateur n'a pas tapé depuis son entrée dans le champ. */
+  const [parcourir, setParcourir] = useState(false);
   const listeId = useId();
   const optionActiveRef = useRef<HTMLLIElement>(null);
 
@@ -86,7 +117,11 @@ export default function AutocompleteInput({
   const resultats = useMemo(() => {
     if (disabled) return [];
     const recherche = normaliser(valeurDebounced.trim());
-    if (recherche.length === 0) return suggestions;
+
+    // Parcours : la liste telle quelle, sans tenir compte de la valeur en place.
+    // C'est ce qui permet de revoir les autres pays sans effacer celui qui est
+    // déjà choisi.
+    if (parcourir || recherche.length === 0) return suggestions.slice(0, MAX_PARCOURS);
 
     const normalisees = suggestionsNormalisees(suggestions);
     const classes: { texte: string; rang: number }[] = [];
@@ -104,7 +139,10 @@ export default function AutocompleteInput({
         a.texte.localeCompare(b.texte, "fr")
     );
     return classes.slice(0, maxSuggestions).map((c) => c.texte);
-  }, [disabled, valeurDebounced, suggestions, maxSuggestions]);
+  }, [disabled, parcourir, valeurDebounced, suggestions, maxSuggestions]);
+
+  /** Vrai si des entrées existent au-delà de ce qui est affiché. */
+  const tronquee = parcourir && suggestions.length > resultats.length;
 
   // Le surlignage est remis à zéro quand l'utilisateur tape (voir onChange).
   // Ce clamp est la ceinture de sécurité : si la liste raccourcit pour une
@@ -119,6 +157,21 @@ export default function AutocompleteInput({
   function choisir(suggestion: string) {
     onChange(suggestion);
     setOuvert(false);
+    setParcourir(false);
+    setIndexActif(-1);
+  }
+
+  /**
+   * Ouvre la liste en mode parcours.
+   *
+   * Appelée par `onFocus` ET par `onClick` : après une sélection à la souris, le
+   * champ garde le focus, donc un second clic dedans ne produit aucun `focus`.
+   * Sans le clic, il faudrait sortir du champ puis y revenir pour rouvrir la
+   * liste — exactement la gêne qu'on corrige.
+   */
+  function ouvrirEnParcours() {
+    setOuvert(true);
+    setParcourir(true);
     setIndexActif(-1);
   }
 
@@ -159,10 +212,14 @@ export default function AutocompleteInput({
         onChange={(e) => {
           onChange(e.target.value);
           setOuvert(true);
+          // La première frappe fait passer du parcours à la recherche : c'est le
+          // geste qui dit « je sais ce que je cherche ».
+          setParcourir(false);
           setIndexActif(-1);
         }}
         onKeyDown={gererClavier}
-        onFocus={() => setOuvert(true)}
+        onFocus={ouvrirEnParcours}
+        onClick={ouvrirEnParcours}
         onBlur={() => setTimeout(() => setOuvert(false), 150)}
         className="w-full px-3 py-2 rounded-lg border border-blue-200 bg-white text-sm placeholder:text-gray-500
                    focus:outline-none focus:ring-2 focus:ring-blue-400
@@ -191,6 +248,19 @@ export default function AutocompleteInput({
               {s}
             </li>
           ))}
+
+          {/* Dire ce qu'on ne montre pas. Sans cette ligne, une liste coupée à
+              200 entrées se lit comme la liste complète, et l'utilisateur conclut
+              que sa ville n'existe pas au lieu de préciser sa saisie. */}
+          {tronquee && (
+            <li
+              role="presentation"
+              className="border-t border-blue-100 px-3 py-2 text-xs italic text-slate-600"
+            >
+              {suggestions.length - resultats.length} autres entrées — tapez quelques
+              lettres pour les atteindre.
+            </li>
+          )}
         </ul>
       )}
     </div>

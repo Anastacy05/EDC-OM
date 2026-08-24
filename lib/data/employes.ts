@@ -63,15 +63,22 @@ export interface EmployeFiche {
   matricule: string;
   nom: string;
   prenoms: string;
-  grade: string;
+  grade: string | null;
   fonction: string;
-  situationFamille: string;
+  situationFamille: string | null;
   indice: string | null;
   /** Format `AAAA-MM-JJ`, prêt pour un `<input type="date">`. */
   dateNaissance: string;
   dateEmbauche: string;
   codeStatut: string;
-  codeDepartement: string;
+  codeDepartement: string | null;
+  departementLibre: string | null;
+  /**
+   * Adresse notée sur la fiche, **hors compte**. Préremplit la création du compte.
+   * `compte.email` ci-dessous est l'identifiant de connexion : les deux peuvent
+   * différer, et c'est celui du compte qui reçoit les courriels.
+   */
+  emailContact: string | null;
   nombreMedailles: number;
   estDetache: boolean;
   joursCongeOrigine: number | null;
@@ -222,7 +229,10 @@ export async function listerPersonnel(
       e.prenoms,
       e.fonction,
       s.libelle AS libelle_statut,
-      d.libelle AS libelle_departement,
+      -- COALESCE : la direction est soit celle du referentiel, soit la saisie
+      -- libre de la fiche (24/08/2026). Sans elle, la colonne serait vide pour
+      -- toute fiche en direction libre.
+      COALESCE(d.libelle, e.departement_libre) AS libelle_departement,
       e.actif,
       e.motif_sortie,
       (u.id IS NOT NULL)                                  AS a_un_compte,
@@ -233,7 +243,11 @@ export async function listerPersonnel(
       COUNT(*) OVER ()                                    AS total
     FROM employe e
     JOIN statut       s ON s.code = e.code_statut
-    JOIN departement  d ON d.code = e.code_departement
+    -- LEFT JOIN et non JOIN : code_departement est nullable depuis le 24/08/2026
+    -- (direction libre). Une jointure interne FAISAIT DISPARAITRE de la liste tout
+    -- employe a direction libre — defaut silencieux, la fiche existant sans jamais
+    -- s'afficher.
+    LEFT JOIN departement  d ON d.code = e.code_departement
     LEFT JOIN utilisateur u ON u.matricule = e.matricule
     WHERE
       (${inclureInactifs} OR e.actif IS TRUE)
@@ -247,13 +261,29 @@ export async function listerPersonnel(
         -- garder une expression homogène ; le coût est nul.
         OR lower(sans_accent(e.matricule)) LIKE lower(sans_accent(${motif}))
       )
-    -- Nom puis prénoms : l'ordre dans lequel les RH lisent un état du personnel.
-    -- Le tri porte sur la forme SANS ACCENT, sinon « NGUÉ » se classe après
-    -- « NGUZ » — la collation place les lettres accentuées à part.
-    -- matricule en dernier départage les homonymes : sans un ordre TOTAL, deux
-    -- pages peuvent répéter ou omettre une ligne (l'ordre des égalités n'est pas
-    -- garanti d'une requête à l'autre).
-    ORDER BY sans_accent(e.nom), sans_accent(e.prenoms), e.matricule
+    -- ── Ordre de la liste (revu le 24/08/2026) ──────────────────────────────
+    --
+    -- 1. e.actif DESC : les employes en poste d'abord, les desactives AU FOND.
+    --    Une fiche eteinte n'est plus une fiche de travail ; l'intercaler par
+    --    ordre alphabetique la mettait au meme rang qu'un collegue en poste.
+    --    DESC sur un booleen place true avant false en PostgreSQL.
+    --
+    -- 2. Puis nom, prenoms — l'ordre dans lequel les RH lisent un etat du
+    --    personnel. Le tri porte sur la forme SANS ACCENT, sinon NGUE accentue se
+    --    classe apres NGUZ : la collation place les lettres accentuees a part.
+    --
+    -- 3. matricule en dernier departage les homonymes. Sans un ordre TOTAL, deux
+    --    pages peuvent repeter ou omettre une ligne — l'ordre des egalites n'est
+    --    pas garanti d'une requete a l'autre.
+    --
+    -- ⚠️ Pas de tri du plus recent au plus ancien ici, contrairement aux ordres de
+    -- mission : une liste de personnel se consulte par NOM, c'est ainsi qu'on y
+    -- cherche quelqu'un. Trier par date d'embauche rendrait la recherche d'un nom
+    -- impossible sans passer par le filtre.
+    --
+    -- (⚠️ AUCUN accent grave dans ces commentaires : ils termineraient le
+    -- litteral de gabarit JavaScript.)
+    ORDER BY e.actif DESC, sans_accent(e.nom), sans_accent(e.prenoms), e.matricule
     LIMIT ${PAR_PAGE} OFFSET ${(pageDemandee - 1) * PAR_PAGE}
   `;
 
@@ -377,6 +407,8 @@ export const lireFicheEmploye = cache(
       dateEmbauche: versChampDate(e.dateEmbauche),
       codeStatut: e.codeStatut,
       codeDepartement: e.codeDepartement,
+      departementLibre: e.departementLibre,
+      emailContact: e.emailContact,
       nombreMedailles: e.nombreMedailles,
       estDetache: e.estDetache,
       // `Decimal` de Prisma : converti en nombre pour traverser la frontière

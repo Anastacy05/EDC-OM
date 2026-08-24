@@ -130,18 +130,18 @@ export async function POST(request: NextRequest) {
     numeroOM: numeroPourGabarit(document.numeroOM),
     nom: document.nom,
     prenoms: document.prenoms,
-    grade: document.grade,
+    grade: document.grade ?? undefined,
     affectation: document.affectation,
     matricule: document.matricule,
-    situationFamille: document.situationFamille,
+    situationFamille: document.situationFamille ?? undefined,
     indice: document.indice ?? undefined,
     destination: document.destination,
     viaPassage: document.viaPassage ?? undefined,
     // La mention préfixée au motif : le gabarit n'a pas de balise pour elle, et
     // c'est ce qui rend un document sans valeur reconnaissable sur le papier.
     motif: document.mentionStatut
-      ? `${document.mentionStatut} — ${document.motif}`
-      : document.motif,
+      ? `${document.mentionStatut}${document.motif ? ` — ${document.motif}` : ""}`
+      : document.motif ?? undefined,
     financement: document.financement ?? undefined,
     moyenTransport: document.moyenTransport ?? undefined,
     dateDepart: formatDateFR(document.dateDepart),

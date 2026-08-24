@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { carteClass, titrePageClass } from "@/lib/styles";
+import { carteClass, conteneurLargeClass, titrePageClass } from "@/lib/styles";
 
 /**
  * Index des rapports.
@@ -45,7 +45,7 @@ const RAPPORTS: readonly Rapport[] = [
 
 export default function RapportsPage() {
   return (
-    <div className="h-full w-full bg-blue-50 flex flex-col gap-8 p-6 sm:p-10">
+    <div className={conteneurLargeClass}>
       <h1 className={titrePageClass}>Rapports</h1>
 
       {/* Mention obligatoire sur tout écran de rapport financier

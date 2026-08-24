@@ -224,20 +224,50 @@ model Employe {
   prenoms String @db.VarChar(150)
   /// Titre statutaire attaché à la PERSONNE, lié à l'indice. Champ libre : il
   /// dépend du corps. Ne pas confondre avec statut ni fonction.
-  grade   String @db.VarChar(100)
+  /// **FACULTATIF depuis le 24/08/2026.** Toutes les fiches ne le portent pas :
+  /// un contractuel n'a pas de grade statutaire, et l'exiger obligeait à inventer
+  /// une valeur — donc à imprimer une contrevérité sur un ordre signé.
+  grade   String? @db.VarChar(100)
   /// Emploi précis dans l'organigramme (« SOUS-DIRECTEUR DU BUDGET ET DU
   /// CONTRÔLE DE GESTION »). Texte libre, décidé le 19/08/2026 : ce n'est pas
   /// une liste fermée. Le référentiel POSTES a été supprimé, son contenu
   /// dupliquait STATUTS.
   fonction String @db.VarChar(200)
 
-  situationFamille SituationFamille @map("situation_famille")
+  /// **FACULTATIVE depuis le 24/08/2026**, pour la même raison que `grade` : elle
+  /// s'imprime sur le document, mais elle n'est pas toujours connue au moment où
+  /// la fiche est ouverte. Un champ obligatoire poussait à cocher au hasard.
+  situationFamille SituationFamille? @map("situation_famille")
   indice           String?          @db.VarChar(10)
   dateNaissance    DateTime         @map("date_naissance") @db.Date /// règle de retraite
   dateEmbauche     DateTime         @map("date_embauche") @db.Date /// base des congés
 
+  /// Adresse de courriel de l'employé, **hors compte**.
+  ///
+  /// ── Pourquoi une colonne ici alors que `Utilisateur.email` existe ──────────
+  ///
+  /// Les deux ne disent pas la même chose. `Utilisateur.email` est l'identifiant
+  /// de connexion : il n'existe que si l'employé a un compte, et il est `UNIQUE`.
+  /// Celle-ci est une donnée de la FICHE, saisie à l'embauche, qui sert à
+  /// préremplir la création de compte le jour où elle a lieu — éventuellement
+  /// jamais. Sans elle, l'adresse devait être retrouvée ailleurs des mois plus
+  /// tard, ou le compte créé tout de suite pour ne pas la perdre.
+  ///
+  /// Pas d'unicité : deux fiches peuvent légitimement pointer une même adresse de
+  /// service. C'est `Utilisateur.email` qui tranche, au moment du compte.
+  emailContact String? @map("email_contact") @db.VarChar(255)
+
   codeStatut       String @map("code_statut") @db.VarChar(40)
-  codeDepartement  String @map("code_departement") @db.VarChar(10)
+  /// Nullable depuis le 24/08/2026 : une fiche peut porter `departementLibre` à
+  /// la place. La contrainte `employe_direction_renseignee` impose l'un des deux.
+  codeDepartement  String? @map("code_departement") @db.VarChar(10)
+  /// Direction libre propre à cette fiche, sans créer de ligne dans le référentiel.
+  ///
+  /// Le référentiel `Departement` reste la voie normale — il alimente les filtres
+  /// et les rapports. Celle-ci existe pour le cas où la direction manque à la
+  /// liste au moment de la saisie : l'agent n'est pas bloqué, et le référentiel
+  /// n'est pas pollué par une entrée créée sous la pression.
+  departementLibre String? @map("departement_libre") @db.VarChar(150)
 
   /// Art. 81-5 : +1 jour de congé par Médaille d'Honneur du Travail.
   nombreMedailles Int @default(0) @map("nombre_medailles") @db.SmallInt
@@ -265,7 +295,7 @@ model Employe {
   noteSortie  String?      @map("note_sortie")
 
   statut      Statut      @relation(fields: [codeStatut], references: [code])
-  departement Departement @relation(fields: [codeDepartement], references: [code])
+  departement Departement? @relation(fields: [codeDepartement], references: [code])
 
   utilisateur    Utilisateur?
   participations Participation[]
@@ -392,9 +422,14 @@ model OrdreMission {
   ulid String @unique @db.Char(26)
 
   codePays         String  @map("code_pays") @db.Char(2)
-  villeDestination String  @map("ville_destination") @db.VarChar(120)
+  /// **FACULTATIVE depuis le 24/08/2026** : le pays suffit à déterminer la zone,
+  /// donc l'indemnité. La ville précise le document, elle ne le conditionne pas.
+  villeDestination String? @map("ville_destination") @db.VarChar(120)
   viaPassage       String? @map("via_passage") @db.VarChar(200)
-  motif            String
+  /// **FACULTATIF depuis le 24/08/2026.** Le gabarit imprime « Motif et
+  /// références » avec une ligne à compléter à la main : un ordre peut partir avec
+  /// ce champ vide et être renseigné au stylo.
+  motif            String?
   financement      String? @db.VarChar(150)
   moyenTransport   String? @map("moyen_transport") @db.VarChar(100)
 
@@ -481,11 +516,16 @@ model Participation {
   // situation d'aujourd'hui et falsifierait un document signé.
   nomS               String           @map("nom_s") @db.VarChar(100)
   prenomsS           String           @map("prenoms_s") @db.VarChar(150)
-  gradeS             String           @map("grade_s") @db.VarChar(100)
+  /// Nullable comme `Employe.grade` : l'instantané doit pouvoir enregistrer
+  /// « pas de grade connu à l'émission », qui est un fait, plutôt qu'une chaîne
+  /// vide qui se lirait comme un grade vide.
+  gradeS             String?          @map("grade_s") @db.VarChar(100)
   fonctionS          String           @map("fonction_s") @db.VarChar(200)
   codeStatutS        String           @map("code_statut_s") @db.VarChar(40)
-  codeDepartementS   String           @map("code_departement_s") @db.VarChar(10)
-  situationFamilleS  SituationFamille @map("situation_famille_s")
+  /// Élargi à 150 le 24/08/2026 : la colonne reçoit soit un code de département
+  /// (10 caractères), soit un `departementLibre`, qui est un libellé complet.
+  codeDepartementS   String           @map("code_departement_s") @db.VarChar(150)
+  situationFamilleS  SituationFamille? @map("situation_famille_s")
   indiceS            String?          @map("indice_s") @db.VarChar(10)
   /// Calculé à la création (statut × zone de destination), jamais recalculé.
   montantFraisFixeJournalier Int? @map("montant_frais_fixe_journalier")

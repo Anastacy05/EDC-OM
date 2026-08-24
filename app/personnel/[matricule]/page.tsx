@@ -1,10 +1,10 @@
 import { notFound } from "next/navigation";
-import { CircleSlash, CheckCircle2 } from "lucide-react";
+import { CircleSlash, CheckCircle2, AlertTriangle } from "lucide-react";
 import { lireFicheEmploye } from "@/lib/data/employes";
 import { getStatuts, getDepartements } from "@/lib/data/referentiels";
 import { VALIDITE_JETON_HEURES } from "@/lib/data/utilisateurs";
 import { libelleMotifSortie } from "@/lib/data/employes.validation";
-import { titrePageClass } from "@/lib/styles";
+import { conteneurFormClass, titrePageClass } from "@/lib/styles";
 import RetourVers from "@/components/RetourVers";
 import FormulaireEmploye from "../FormulaireEmploye";
 import BlocCompte from "./BlocCompte";
@@ -22,10 +22,10 @@ export default async function FicheEmployePage({
   searchParams,
 }: {
   params: Promise<{ matricule: string }>;
-  searchParams: Promise<{ cree?: string }>;
+  searchParams: Promise<{ cree?: string; acces?: string }>;
 }) {
   const { matricule } = await params;
-  const { cree } = await searchParams;
+  const { cree, acces } = await searchParams;
 
   const fiche = await lireFicheEmploye(decodeURIComponent(matricule));
   if (!fiche) notFound();
@@ -33,7 +33,7 @@ export default async function FicheEmployePage({
   const [statuts, departements] = await Promise.all([getStatuts(), getDepartements()]);
 
   return (
-    <div className="flex min-h-full w-full flex-col gap-6 bg-blue-50 p-6 sm:p-10">
+    <div className={conteneurFormClass}>
       <RetourVers href="/personnel" libelle="Retour à la liste du personnel" />
 
       <div className="flex flex-wrap items-baseline gap-3">
@@ -61,8 +61,37 @@ export default async function FicheEmployePage({
           className="flex max-w-3xl items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-900"
         >
           <CheckCircle2 size={18} aria-hidden="true" className="shrink-0" />
-          Employé ajouté. Créez son compte d&apos;accès ci-dessous pour qu&apos;il puisse se
-          connecter.
+          {acces === "envoye"
+            ? "Employé ajouté et accès ouvert : le lien de définition du mot de passe est parti par courriel."
+            : "Employé ajouté. Créez son compte d'accès ci-dessous pour qu'il puisse se connecter."}
+        </p>
+      )}
+
+      {/* Le sort de l'ouverture d'accès voyage en CODE dans l'URL, jamais en
+          texte : la barre d'adresse est copiée et journalisée, et le lien de mot
+          de passe est un secret. La reprise passe donc par le bloc ci-dessous,
+          qui sait réémettre — et qui, lui, peut afficher le lien. */}
+      {acces === "differe" && (
+        <p
+          role="status"
+          className="flex max-w-3xl items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+        >
+          <AlertTriangle size={18} aria-hidden="true" className="mt-0.5 shrink-0" />
+          Le compte est créé, mais le courriel n&apos;est pas parti. Il reste en file et
+          sera retenté ; pour ne pas attendre, réémettez le lien ci-dessous — il
+          s&apos;affichera à l&apos;écran.
+        </p>
+      )}
+
+      {acces === "refuse" && (
+        <p
+          role="alert"
+          className="flex max-w-3xl items-start gap-2 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900"
+        >
+          <AlertTriangle size={18} aria-hidden="true" className="mt-0.5 shrink-0" />
+          La fiche est bien créée, mais le compte n&apos;a pas pu l&apos;être — l&apos;adresse
+          est peut-être déjà rattachée à un autre compte. Reprenez l&apos;ouverture
+          d&apos;accès ci-dessous.
         </p>
       )}
 

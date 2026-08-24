@@ -268,20 +268,42 @@ describe("Une saisie correcte est acceptée", () => {
   });
 });
 
-describe("Les cinq NOT NULL que rien ne validait", () => {
-  // C'est le cœur de cette validation. `handleValider` ne contrôlait que les deux
-  // dates et la présence d'un participant : on pouvait donc enregistrer un OM sans
-  // pays de destination — donc sans zone, donc SANS INDEMNITÉ.
+describe("Ce que la validation impose, et ce qu'elle a cessé d'imposer", () => {
+  // Cinq colonnes étaient `NOT NULL` sans que rien ne les valide : `handleValider`
+  // ne contrôlait que les deux dates et la présence d'un participant. On pouvait
+  // enregistrer un OM sans pays de destination — donc sans zone, donc SANS
+  // INDEMNITÉ.
+  //
+  // ── Le 24/08/2026, deux des cinq sont devenues facultatives ────────────────
+  //
+  // `motif` et `ville_destination` ne conditionnent RIEN : le gabarit imprime pour
+  // chacune une ligne à compléter, qui se remplit au stylo. Les exiger ne rendait
+  // pas le document plus complet, ça poussait à taper « RAS » — donc à imprimer
+  // une contrevérité. Les trois autres restent dues, parce qu'elles portent
+  // chacune une conséquence : le pays donne la zone donc l'indemnité, le lieu et
+  // la date d'émission datent la pièce.
 
-  test("motif obligatoire", () => {
-    assert.match(erreurSur("motif", { motif: "   " }) ?? "", /obligatoire/);
+  test("le motif est FACULTATIF depuis le 24/08/2026", () => {
+    const { valide, erreurs } = validerOM(saisieValide({ motif: "   " }), {
+      paysConnus: PAYS_CONNUS,
+      aujourdhui: AUJOURDHUI,
+    });
+    assert.equal(erreurs.motif, undefined);
+    // `null` et non `""` : « pas de motif saisi » est un fait, une chaîne vide
+    // serait un motif vide. La colonne est nullable pour dire exactement ça.
+    assert.equal(valide?.motif, null);
   });
 
-  test("ville de destination obligatoire", () => {
-    assert.match(erreurSur("villeDestination", { villeDestination: "" }) ?? "", /obligatoire/);
+  test("la ville de destination est FACULTATIVE depuis le 24/08/2026", () => {
+    const { valide, erreurs } = validerOM(saisieValide({ villeDestination: "" }), {
+      paysConnus: PAYS_CONNUS,
+      aujourdhui: AUJOURDHUI,
+    });
+    assert.equal(erreurs.villeDestination, undefined);
+    assert.equal(valide?.villeDestination, null);
   });
 
-  test("pays de destination obligatoire", () => {
+  test("le pays de destination reste obligatoire : sans lui, aucune indemnité", () => {
     assert.match(erreurSur("paysDestination", { paysDestination: "" }) ?? "", /obligatoire/);
   });
 
@@ -291,6 +313,15 @@ describe("Les cinq NOT NULL que rien ne validait", () => {
 
   test("date d'émission obligatoire", () => {
     assert.ok(erreurSur("dateEmission", { dateEmission: "" }));
+  });
+
+  test("la longueur de la ville reste bornée quand elle est saisie", () => {
+    // Facultatif ne veut pas dire non contrôlé : la colonne est un VARCHAR(120),
+    // et un dépassement produirait une erreur PostgreSQL illisible.
+    assert.match(
+      erreurSur("villeDestination", { villeDestination: "x".repeat(121) }) ?? "",
+      /120 caractères/
+    );
   });
 });
 

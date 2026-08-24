@@ -1,9 +1,16 @@
 import Link from "next/link";
-import { ShieldCheck, ShieldAlert, KeyRound, Lock } from "lucide-react";
-import { listerAdministrateurs } from "@/lib/data/administrateurs";
+import { ShieldCheck, ShieldAlert, KeyRound, Lock, UserPlus } from "lucide-react";
+import { listerAdministrateurs, listerEmployesNommables } from "@/lib/data/administrateurs";
 import { estFondateur } from "@/lib/auth/garde";
 import { VALIDITE_JETON_HEURES } from "@/lib/data/utilisateurs";
-import { carteClass, legendClass, titrePageClass } from "@/lib/styles";
+import {
+  boutonPrimaire,
+  carteClass,
+  conteneurLargeClass,
+  legendClass,
+  titrePageClass,
+  TAILLE_ICONE,
+} from "@/lib/styles";
 import RetourVers from "@/components/RetourVers";
 import FormulaireAdministrateur from "./FormulaireAdministrateur";
 import LigneAdministrateur from "./LigneAdministrateur";
@@ -28,16 +35,33 @@ export const metadata = { title: "Administrateurs — EDC OM" };
 export default async function AdministrateursPage() {
   // `listerAdministrateurs` porte `exigerAdministrateur` : un non-administrateur
   // est redirigé avant d'arriver ici.
-  const [administrateurs, jeSuisFondateur] = await Promise.all([
+  const [administrateurs, jeSuisFondateur, employes] = await Promise.all([
     listerAdministrateurs(),
     estFondateur(),
+    listerEmployesNommables(),
   ]);
 
   return (
-    <div className="flex min-h-full w-full flex-col gap-6 bg-blue-50 p-6 sm:p-10">
+    <div className={conteneurLargeClass}>
       <RetourVers href="/parametres" libelle="Retour aux paramètres" />
 
-      <h1 className={titrePageClass}>Administrateurs</h1>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <h1 className={titrePageClass}>Administrateurs</h1>
+
+        {/* Raccourci vers le formulaire, en bas de page.
+            Une ANCRE (`<a href="#ajouter">`) et non un bouton avec `scrollIntoView` :
+            elle fonctionne sans JavaScript, s'ouvre dans un nouvel onglet, et —
+            c'est le point qui compte — elle DÉPLACE LE FOCUS sur la cible. Un
+            défilement programmé ne le fait pas : la page bougerait sous les yeux
+            d'un utilisateur au clavier dont le curseur serait resté en haut.
+            `next/link` est inutile ici, la cible étant sur la page courante. */}
+        {jeSuisFondateur && (
+          <a href="#ajouter" className={boutonPrimaire}>
+            <UserPlus size={TAILLE_ICONE} aria-hidden="true" />
+            Ajouter un administrateur
+          </a>
+        )}
+      </div>
 
       <section className={`${carteClass} max-w-3xl`}>
         <h2 className={legendClass}>Ce que ce rôle permet</h2>
@@ -76,7 +100,10 @@ export default async function AdministrateursPage() {
 
       {/* ── Création ───────────────────────────────────────────────────────── */}
       {jeSuisFondateur ? (
-        <FormulaireAdministrateur validiteHeures={VALIDITE_JETON_HEURES} />
+        <FormulaireAdministrateur
+          validiteHeures={VALIDITE_JETON_HEURES}
+          employes={employes}
+        />
       ) : (
         <section className={`${carteClass} max-w-3xl`}>
           <h2 className={legendClass}>Ajouter un administrateur</h2>

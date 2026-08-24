@@ -10,6 +10,7 @@ import { normaliserMatricule } from "@/lib/data/employes.validation";
 import { VALIDITE_JETON_HEURES } from "@/lib/data/utilisateurs";
 import { envoyerCourrielMaintenant } from "@/lib/data/mails";
 import { courrielInvitation } from "@/lib/mail/modeles";
+import { estEmailValide, normaliserEmail } from "@/lib/email";
 
 /**
  * Server Actions de gestion des administrateurs.
@@ -55,16 +56,14 @@ export async function actionCreerAdministrateur(
   _precedent: EtatAdministrateur | undefined,
   formData: FormData
 ): Promise<EtatAdministrateur> {
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const email = normaliserEmail(String(formData.get("email") ?? ""));
   // Le matricule est facultatif : un administrateur n'est pas forcément un
   // employé de l'EDC (prestataire, compte de service).
   const matriculeBrut = String(formData.get("matricule") ?? "").trim();
   const matricule = matriculeBrut === "" ? null : normaliserMatricule(matriculeBrut);
 
   if (!email) return { erreur: "Adresse de courriel requise." };
-  if (!email.includes("@") || email.length < 5) {
-    return { erreur: "Adresse de courriel invalide." };
-  }
+  if (!estEmailValide(email)) return { erreur: "Adresse de courriel invalide." };
 
   let resultat: Awaited<ReturnType<typeof creerAdministrateur>>;
   try {

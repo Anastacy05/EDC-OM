@@ -5,7 +5,13 @@ import Link from "next/link";
 import { ShieldCheck, ChevronRight } from "lucide-react";
 import { configOM, mettreAJourConfig, reinitialiserConfig } from "@/lib/config";
 import { useEstMonte } from "@/lib/useEstMonte";
-import { inputClass, carteClass, legendClass, titrePageClass } from "@/lib/styles";
+import {
+  inputClass,
+  carteClass,
+  conteneurLargeClass,
+  legendClass,
+  titrePageClass,
+} from "@/lib/styles";
 
 // DÉPLACÉ (21/08/2026) — le tableau RAPPORTS vit maintenant dans
 // app/rapports/page.tsx, avec les adresses à jour (/rapports/... et non
@@ -41,7 +47,7 @@ export default function ParametresPage() {
   };
 
   return (
-    <div className="h-full w-full bg-blue-50 flex flex-col gap-8 p-6 sm:p-10">
+    <div className={conteneurLargeClass}>
       <h1 className={titrePageClass}>Paramètres</h1>
 
       <div className="w-full flex flex-col items-center justify-center gap-10">
@@ -85,7 +91,12 @@ export default function ParametresPage() {
           <span className="flex items-start gap-3">
             <ShieldCheck size={20} aria-hidden="true" className="mt-0.5 shrink-0 text-blue-700" />
             <span className="flex flex-col gap-1 text-left">
-              <span className={legendClass}>Administrateurs</span>
+              {/* « Gérer les administrateurs » et non « Administrateurs » : le
+                  titre nommait un SUJET, et la seule indication d'action était le
+                  chevron — un symbole dont le sens repose sur une convention non
+                  énoncée, et qui n'est annoncé par aucun lecteur d'écran puisqu'il
+                  est `aria-hidden`. Le libellé porte maintenant le verbe. */}
+              <span className={legendClass}>Gérer les administrateurs</span>
               <span className="text-sm text-gray-600">
                 Voir qui détient les droits d&apos;administration. Seul le compte
                 fondateur peut en créer ou en retirer.

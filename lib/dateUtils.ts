@@ -54,6 +54,30 @@ export function versChampDate(d: Date): string {
   return `${d.getUTCFullYear()}-${mois}-${jour}`;
 }
 
+/**
+ * Date du jour au format d'un `<input type="date">`, en heure **LOCALE**.
+ *
+ * Sert d'attribut `min` sur les saisies de date de mission : le navigateur grise
+ * alors les jours antérieurs, au lieu de laisser saisir une date que la
+ * validation refusera ensuite.
+ *
+ * ⚠️ **Pas `new Date().toISOString().slice(0, 10)`**, qui donne la date UTC :
+ * entre minuit et 1 h du matin au Cameroun (UTC+1), elle renvoie la VEILLE. Le
+ * `min` autoriserait donc un départ hier pendant cette heure-là, et la validation
+ * serveur — qui, elle, raisonne en heure locale — le refuserait. Les deux doivent
+ * dire la même chose, sinon l'écran propose ce que le serveur rejette.
+ *
+ * ⚠️ À n'appeler que côté navigateur (gestionnaire d'événement, `useEffect`, ou
+ * composant client) : au rendu serveur, « aujourd'hui » serait celui du serveur,
+ * et la valeur pourrait différer de celle recalculée à l'hydratation.
+ */
+export function aujourdhuiChampDate(): string {
+  const maintenant = new Date();
+  const mois = String(maintenant.getMonth() + 1).padStart(2, "0");
+  const jour = String(maintenant.getDate()).padStart(2, "0");
+  return `${maintenant.getFullYear()}-${mois}-${jour}`;
+}
+
 export const NOMS_MOIS = [
   "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",

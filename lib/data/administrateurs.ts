@@ -88,8 +88,50 @@ export async function listerAdministrateurs(): Promise<AdministrateurListe[]> {
   }));
 }
 
-export type EchecAdministrateur =
-  | { genre: "emailPris" }
+/** Employé proposable à la nomination, pour l'autocomplétion du formulaire. */
+export interface EmployeNommable {
+  matricule: string;
+  /** « NKOLO Jean Pierre » — la forme affichée et recherchée. */
+  nomComplet: string;
+  /** Adresse notée sur la fiche, pour préremplir le courriel. */
+  emailContact: string | null;
+}
+
+/**
+ * Employés qu'on peut nommer administrateur.
+ *
+ * ── Pourquoi filtrer ici, et sur ces deux critères ──────────────────────────
+ *
+ * Ce sont exactement ceux que `creerAdministrateur` accepte : actif, et sans
+ * compte. Proposer les autres reviendrait à laisser choisir un nom pour recevoir
+ * « Cet employé est désactivé » ou « Un compte existe déjà » — un refus qu'on
+ * pouvait éviter avant le clic.
+ *
+ * ⚠️ Ce filtre ne REMPLACE pas les contrôles de `creerAdministrateur` : la liste
+ * est un instantané, et le matricule reste un champ libre que l'appelant peut
+ * remplir sans passer par elle. Les deux vérifications coexistent, comme partout
+ * ailleurs — celle de l'écran évite un refus, celle du DAL le garantit.
+ *
+ * Lisible par tout administrateur, comme la liste des administrateurs : l'écran
+ * n'est rendu qu'au fondateur, mais c'est le DAL qui refuse l'écriture.
+ */
+export async function listerEmployesNommables(): Promise<EmployeNommable[]> {
+  await exigerAdministrateur();
+
+  const lignes = await prisma.employe.findMany({
+    where: { actif: true, utilisateur: null },
+    orderBy: [{ nom: "asc" }, { prenoms: "asc" }],
+    select: { matricule: true, nom: true, prenoms: true, emailContact: true },
+  });
+
+  return lignes.map((e) => ({
+    matricule: e.matricule,
+    nomComplet: `${e.nom} ${e.prenoms}`,
+    emailContact: e.emailContact,
+  }));
+}
+
+export type EchecAdministrateur =  | { genre: "emailPris" }
   | { genre: "introuvable" }
   | { genre: "pasAdministrateur" }
   | { genre: "estFondateur" }

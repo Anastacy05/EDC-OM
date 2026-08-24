@@ -7,7 +7,15 @@ import { getStatuts, getDepartements, getPaysOptions } from "@/lib/data/referent
 import { PAR_PAGE_OM } from "@/lib/numeroOM";
 import { formatDateFR } from "@/lib/dateUtils";
 import { libelleDepartement } from "@/lib/referentiels";
-import { boutonPrimaire, carteClass, titrePageClass, TAILLE_ICONE } from "@/lib/styles";
+import {
+  boutonPrimaire,
+  carteClass,
+  conteneurLargeClass,
+  ligneCliquableClass,
+  lienEtenduClass,
+  titrePageClass,
+  TAILLE_ICONE,
+} from "@/lib/styles";
 import FiltresOM from "./FiltresOM";
 import BadgeStatut from "./BadgeStatut";
 import Pagination from "@/app/personnel/Pagination";
@@ -79,7 +87,7 @@ export default async function OMListePage({
   ]);
 
   return (
-    <div className="flex min-h-full w-full flex-col gap-6 bg-blue-50 p-6 sm:p-10">
+    <div className={conteneurLargeClass}>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className={titrePageClass}>Ordres de mission</h1>
         <Link href="/om/nouveau" className={boutonPrimaire}>
@@ -211,14 +219,20 @@ async function Tableau({ filtres }: { filtres: Recherche }) {
               // n'existe plus — la table n'a pas d'identifiant de substitution.
               <tr
                 key={`${l.idOM}-${l.matricule}`}
-                className="border-b border-blue-100 last:border-0 hover:bg-blue-50/60"
+                className={ligneCliquableClass}
               >
                 <td className="px-4 py-3 font-mono">
                   <Link
                     href={`/om/${l.idOM}?participant=${encodeURIComponent(l.matricule)}`}
-                    className="text-blue-700 hover:underline"
+                    className={`${lienEtenduClass} text-blue-700 hover:underline`}
                   >
                     {l.numeroOM}
+                    {/* Le nom dans le libellé accessible : hors contexte visuel,
+                        une liste de numéros nus ne dit pas de qui il s'agit. */}
+                    <span className="sr-only">
+                      {" "}
+                      — ouvrir l&apos;ordre de mission de {l.nom} {l.prenoms}
+                    </span>
                   </Link>
                 </td>
                 <td className="px-4 py-3">

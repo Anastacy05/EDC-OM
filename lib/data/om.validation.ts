@@ -56,9 +56,9 @@ export interface SaisieOM {
 export interface OMValide {
   ulid: string;
   paysDestination: string;
-  villeDestination: string;
+  villeDestination: string | null;
   viaPassage: string | null;
-  motif: string;
+  motif: string | null;
   financement: string | null;
   moyenTransport: string | null;
   dateDepart: Date;
@@ -136,8 +136,14 @@ const EMISSION_ANNEES_FUTURES = 1;
  * On construit donc la date en UTC à partir des composantes LOCALES : le résultat
  * est comparable aux dates produites par `analyserDate`, qui sont elles aussi des
  * minuits UTC portant le jour saisi.
+ *
+ * Exportée depuis le 24/08/2026 : le formulaire a besoin de la MÊME valeur pour
+ * poser `min` sur ses saisies de date. La calculer côté navigateur donnerait deux
+ * définitions d'« aujourd'hui » — celle de l'écran et celle du serveur qui
+ * valide — qui divergeraient d'un jour à chaque changement de date, et l'écran
+ * proposerait alors ce que le serveur refuse.
  */
-function aujourdhuiLocal(): Date {
+export function aujourdhuiLocal(): Date {
   const maintenant = new Date();
   return new Date(
     Date.UTC(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate())
@@ -210,10 +216,8 @@ export function validerOM(
       "ne peut pas être calculée. Choisissez un pays dans la liste.";
   }
 
-  const ville = saisie.villeDestination.trim();
-  if (!ville) {
-    erreurs.villeDestination = "La ville de destination est obligatoire.";
-  } else if (ville.length > MAX.villeDestination) {
+  const ville = (saisie.villeDestination ?? "").trim();
+  if (ville.length > MAX.villeDestination) {
     erreurs.villeDestination = `${MAX.villeDestination} caractères maximum.`;
   }
 
@@ -223,10 +227,7 @@ export function validerOM(
   }
 
   // ── Objet de la mission ───────────────────────────────────────────────────
-  const motif = saisie.motif.trim();
-  if (!motif) {
-    erreurs.motif = "Le motif de la mission est obligatoire : il figure sur l'ordre signé.";
-  }
+  const motif = (saisie.motif ?? "").trim();
 
   const financement = saisie.financement.trim();
   if (financement.length > MAX.financement) {
@@ -308,9 +309,9 @@ export function validerOM(
     valide: {
       ulid: saisie.ulid,
       paysDestination: pays,
-      villeDestination: ville,
+      villeDestination: ville || null,
       viaPassage: via === "" ? null : via,
-      motif,
+      motif: motif || null,
       financement: financement === "" ? null : financement,
       moyenTransport: transport === "" ? null : transport,
       dateDepart: depart!,

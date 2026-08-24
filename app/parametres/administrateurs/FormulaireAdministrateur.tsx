@@ -1,11 +1,13 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useMemo, useState } from "react";
 import { UserPlus, AlertCircle, CheckCircle2, Copy, AlertTriangle } from "lucide-react";
 import {
   actionCreerAdministrateur,
   type EtatAdministrateur,
 } from "./actions";
+import type { EmployeNommable } from "@/lib/data/administrateurs";
+import AutocompleteInput from "@/components/AutocompleteInput";
 import {
   inputClass,
   carteClass,
@@ -20,19 +22,84 @@ import {
  * Le lien d'invitation n'apparaît qu'en REPLI, si le courriel n'a pas pu partir —
  * même règle que pour l'invitation d'un employé : quand l'envoi réussit, afficher
  * le lien le ferait exister dans un second endroit sans aucun bénéfice.
+ *
+ * ── Le nom de l'employé, apparié au matricule dans les DEUX sens (24/08/2026) ─
+ *
+ * Le formulaire ne demandait qu'un matricule. Personne ne connaît par cœur le
+ * matricule d'un collègue : il fallait ouvrir la liste du personnel dans un autre
+ * onglet, chercher, recopier — et une seule faute de frappe donnait « Cet employé
+ * est introuvable » sans dire lequel on visait.
+ *
+ * Les deux champs se remplissent donc l'un l'autre : choisir un nom pose le
+ * matricule, saisir un matricule connu affiche le nom. Le matricule reste la
+ * valeur ENVOYÉE — c'est la clé, le nom n'est qu'un moyen d'y arriver.
+ *
+ * ⚠️ Les deux champs restent **libres**. Un administrateur n'est pas forcément un
+ * employé (prestataire, compte de service), et la liste ne contient que les
+ * employés actifs sans compte : la fermer interdirait des cas légitimes. Le DAL
+ * tranche, comme toujours.
  */
 export default function FormulaireAdministrateur({
   validiteHeures,
+  employes,
 }: {
   validiteHeures: number;
+  employes: EmployeNommable[];
 }) {
   const [etat, action, enCours] = useActionState<EtatAdministrateur | undefined, FormData>(
     actionCreerAdministrateur,
     undefined
   );
 
+  // Saisies contrôlées : c'est ce qui permet à chacune d'écrire dans l'autre.
+  const [nom, setNom] = useState("");
+  const [matricule, setMatricule] = useState("");
+  const [email, setEmail] = useState("");
+
+  // Index matricule → employé, construit une fois. Un `find` dans le rendu
+  // parcourrait la liste à chaque frappe.
+  const parMatricule = useMemo(
+    () => new Map(employes.map((e) => [e.matricule, e])),
+    [employes]
+  );
+  const parNom = useMemo(
+    () => new Map(employes.map((e) => [e.nomComplet, e])),
+    [employes]
+  );
+
+  const nomsProposes = useMemo(() => employes.map((e) => e.nomComplet), [employes]);
+
+  /** L'employé désigné, s'il est reconnu. Sert au rappel affiché sous les champs. */
+  const reconnu = parMatricule.get(matricule.trim().toUpperCase()) ?? null;
+
+  /**
+   * Le nom choisi pose le matricule, et l'adresse si la fiche en porte une.
+   *
+   * L'adresse n'écrase JAMAIS une saisie en cours : le fondateur peut vouloir un
+   * autre courriel que celui noté sur la fiche, et la lui reprendre sous les doigts
+   * serait la pire des serviabilités.
+   */
+  const choisirNom = (valeur: string) => {
+    setNom(valeur);
+    const employe = parNom.get(valeur);
+    if (!employe) return;
+    setMatricule(employe.matricule);
+    if (!email && employe.emailContact) setEmail(employe.emailContact);
+  };
+
+  /** Le matricule saisi affiche le nom — le sens inverse, demandé explicitement. */
+  const saisirMatricule = (valeur: string) => {
+    const propre = valeur.toUpperCase();
+    setMatricule(propre);
+    const employe = parMatricule.get(propre.trim());
+    if (employe) {
+      setNom(employe.nomComplet);
+      if (!email && employe.emailContact) setEmail(employe.emailContact);
+    }
+  };
+
   return (
-    <section className={`${carteClass} max-w-3xl`}>
+    <section id="ajouter" className={`${carteClass} max-w-3xl scroll-mt-20`}>
       <h2 className={legendClass}>Ajouter un administrateur</h2>
 
       {etat?.erreur && (
@@ -68,30 +135,72 @@ export default function FormulaireAdministrateur({
             id="email"
             name="email"
             type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             required
+            maxLength={255}
             placeholder="prenom.nom@edc.cm"
             className={`${inputClass} max-w-sm`}
           />
         </div>
 
-        <div className="flex flex-col gap-1">
-          <label htmlFor="matricule" className="text-sm font-medium text-blue-900">
-            Matricule
-          </label>
-          <input
-            id="matricule"
-            name="matricule"
-            maxLength={20}
-            placeholder="22P582"
-            aria-describedby="aide-matricule-admin"
-            className={`${inputClass} max-w-xs font-mono`}
-          />
-          <p id="aide-matricule-admin" className="text-xs text-slate-600">
-            Facultatif. À renseigner si cet administrateur est aussi un employé — c&apos;est
-            ce qui relie son compte à ses propres missions et congés. À laisser vide pour
-            un prestataire ou un compte de service.
-          </p>
+        {/* ── L'employé : nom et matricule, appariés ─────────────────────────── */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-1">
+            <label htmlFor="nomEmploye" className="text-sm font-medium text-blue-900">
+              Nom de l&apos;employé
+            </label>
+            {/* `AutocompleteInput` : le même composant que la création d'OM, donc
+                le même comportement — la liste entière s'ouvre à chaque entrée
+                dans le champ, sans avoir à effacer ce qui s'y trouve.
+                Pas de `name` : ce champ ne part PAS au serveur, il ne sert qu'à
+                trouver le matricule, qui est la clé. */}
+            <AutocompleteInput
+              value={nom}
+              onChange={choisirNom}
+              suggestions={nomsProposes}
+              placeholder="NKOLO Jean Pierre"
+            />
+            <p className="text-xs text-slate-600">
+              Employés actifs sans compte. Choisir un nom remplit le matricule.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label htmlFor="matricule" className="text-sm font-medium text-blue-900">
+              Matricule
+            </label>
+            <input
+              id="matricule"
+              name="matricule"
+              value={matricule}
+              onChange={(e) => saisirMatricule(e.target.value)}
+              maxLength={20}
+              placeholder="22P582"
+              aria-describedby="aide-matricule-admin"
+              className={`${inputClass} font-mono`}
+            />
+            <p id="aide-matricule-admin" className="text-xs text-slate-600">
+              Facultatif. À renseigner si cet administrateur est aussi un employé — c&apos;est
+              ce qui relie son compte à ses propres missions et congés. À laisser vide pour
+              un prestataire ou un compte de service.
+            </p>
+          </div>
         </div>
+
+        {/* Le rappel de ce qui a été reconnu : sans lui, rien ne distingue un
+            matricule apparié d'un matricule simplement tapé au hasard. */}
+        {matricule.trim() !== "" && (
+          <p
+            className={`text-xs ${
+              reconnu ? "text-blue-900" : "text-amber-800"
+            }`}
+          >
+            {reconnu
+              ? `Rattaché à ${reconnu.nomComplet}.`
+              : "Ce matricule ne correspond à aucun employé actif sans compte. Il sera vérifié à la création."}
+          </p>
+        )}
 
         <button type="submit" disabled={enCours} className={`${boutonPrimaire} self-start`}>
           <UserPlus size={TAILLE_ICONE} aria-hidden="true" />
