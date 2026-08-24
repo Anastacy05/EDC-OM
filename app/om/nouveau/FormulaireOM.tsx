@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useActionState } from "react";
 import { useRouter } from "next/navigation";
 import { ulid } from "ulid";
 import { Trash2, UserPlus, AlertTriangle, X } from "lucide-react";
-import { villesDuPays } from "@/lib/locations";
+import { villesDuPaysAvecAjouts } from "@/lib/locations";
 import { useBrouillonNonEnregistre } from "@/contexts/brouillonContext";
 import {
   inputClass,
@@ -196,8 +196,18 @@ export default function FormulaireOM({ donnees }: { donnees: DonneesFormulaireOM
     [donnees.employes]
   );
   const nomsPays = useMemo(() => Object.keys(donnees.zoneParPays), [donnees.zoneParPays]);
-  const villesDuPaysChoisi = useMemo(() => villesDuPays(paysDestination), [paysDestination]);
-  const villesCameroun = useMemo(() => villesDuPays("Cameroun"), []);
+  // Les villes du paquet, PLUS les localités ajoutées par un administrateur pour
+  // ce pays (Paramètres > Localités). `useMemo` obligatoire : sans lui, la fusion
+  // rendrait un tableau neuf à chaque frappe et invaliderait le cache de
+  // normalisation d'AutocompleteInput, qui est indexé par référence de tableau.
+  const villesDuPaysChoisi = useMemo(
+    () => villesDuPaysAvecAjouts(paysDestination, donnees.villesAjoutees[paysDestination.trim()]),
+    [paysDestination, donnees.villesAjoutees]
+  );
+  const villesCameroun = useMemo(
+    () => villesDuPaysAvecAjouts("Cameroun", donnees.villesAjoutees["Cameroun"]),
+    [donnees.villesAjoutees]
+  );
 
   // Zone de destination : `undefined` tant que le pays n'est pas exactement l'un de
   // ceux du référentiel. On ne devine PAS — un montant calculé sur une zone devinée

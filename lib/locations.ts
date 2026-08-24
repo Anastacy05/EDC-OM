@@ -2,6 +2,10 @@ import type { OrdreMission } from "@/types/om";
 import { Country, City } from "country-state-city";
 import countries from "i18n-iso-countries";
 import fr from "i18n-iso-countries/langs/fr.json";
+// `localites.validation` et non `localites` : ce dernier est `server-only`, et ce
+// module-ci est chargé par le navigateur. La comparaison des noms est écrite là
+// pour être lue des deux côtés — c'est celle de l'index unique en base.
+import { cleLocalite } from "@/lib/data/localites.validation";
 
 countries.registerLocale(fr);
 
@@ -121,6 +125,52 @@ export function villesDuPays(nomPaysFr: string): string[] {
 
   cacheVillesParPays.set(code, villes);
   return villes;
+}
+
+/**
+ * Villes du pays, PLUS les localités ajoutées à la main par un administrateur
+ * (table `localite`, écran Paramètres > Localités).
+ *
+ * ── Pourquoi cette fusion existe ─────────────────────────────────────────────
+ *
+ * La liste ci-dessus vient de `country-state-city`, qui ne connaît que les
+ * agglomérations. Les sites de production de l'EDC — Nachtigal, Song Loulou,
+ * Memve'ele, Lom Pangar — n'y figurent pas, et la liste n'est pas modifiable :
+ * elle vit dans `node_modules`, donc elle est réécrite à chaque installation.
+ *
+ * Les ajouts vivent en base et sont recollés ICI, à l'affichage. Le paquet reste
+ * la source des 148 000 villes, la base ne porte que le complément.
+ *
+ * ── La référence retournée doit rester stable ────────────────────────────────
+ *
+ * ⚠️ Sans ajout pour ce pays, on renvoie **le tableau mis en cache tel quel**, et
+ * non une copie. `AutocompleteInput` indexe ses formes normalisées dans une
+ * `WeakMap` clé PAR RÉFÉRENCE de tableau : un `[...villes]` neuf à chaque appel
+ * invaliderait ce cache et referait normaliser 148 000 chaînes à chaque frappe.
+ *
+ * Quand il y a des ajouts, le tableau fusionné est forcément neuf — c'est
+ * pourquoi l'appelant doit envelopper cet appel dans un `useMemo` dépendant du
+ * pays ET des ajouts. La fusion elle-même n'est pas mise en cache : les ajouts
+ * peuvent changer d'un rendu serveur au suivant, et un cache indexé par pays
+ * servirait alors une liste périmée.
+ *
+ * Les doublons sont écartés sans tenir compte des accents ni de la casse, comme
+ * l'index unique en base : ajouter « Yaoundé » quand le paquet fournit
+ * « Yaounde » ne doit pas faire apparaître deux entrées voisines dans la liste.
+ * La graphie de l'AJOUT gagne — c'est celle qu'un administrateur a choisie
+ * exprès, et c'est elle qui doit s'imprimer.
+ */
+export function villesDuPaysAvecAjouts(
+  nomPaysFr: string,
+  ajouts: readonly string[] | undefined
+): string[] {
+  const villes = villesDuPays(nomPaysFr);
+  if (!ajouts || ajouts.length === 0) return villes;
+
+  const clesAjoutees = new Set(ajouts.map(cleLocalite));
+  return [...ajouts, ...villes.filter((v) => !clesAjoutees.has(cleLocalite(v)))].sort((a, b) =>
+    a.localeCompare(b, "fr")
+  );
 }
 
 // Pays/ville d'un OM, quelle que soit son ancienneté.

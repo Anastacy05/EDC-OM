@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ShieldCheck, ChevronRight } from "lucide-react";
+import { ShieldCheck, ChevronRight, MapPin } from "lucide-react";
 import { configOM, mettreAJourConfig, reinitialiserConfig } from "@/lib/config";
 import { useEstMonte } from "@/lib/useEstMonte";
 import {
@@ -100,6 +100,33 @@ export default function ParametresPage() {
               <span className="text-sm text-gray-600">
                 Voir qui détient les droits d&apos;administration. Seul le compte
                 fondateur peut en créer ou en retirer.
+              </span>
+            </span>
+          </span>
+          <ChevronRight
+            size={20}
+            aria-hidden="true"
+            className="shrink-0 text-blue-700 transition-transform duration-200 group-hover:translate-x-1"
+          />
+        </Link>
+
+        {/* ── Localités ──────────────────────────────────────────────────────
+            Hors du garde-fou `estMonte`, comme la carte ci-dessus : aucune
+            lecture de localStorage, donc aucun écart d'hydratation. */}
+        <Link
+          href="/parametres/localites"
+          className={`${carteClass} group flex w-full max-w-2xl items-center justify-between gap-4
+                      transition-colors duration-200 hover:bg-white
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500`}
+        >
+          <span className="flex items-start gap-3">
+            <MapPin size={20} aria-hidden="true" className="mt-0.5 shrink-0 text-blue-700" />
+            <span className="flex flex-col gap-1 text-left">
+              <span className={legendClass}>Gérer les localités</span>
+              <span className="text-sm text-gray-600">
+                Ajouter un site aux villes proposées d&apos;un pays — Nachtigal, Song
+                Loulou, Memve&apos;ele. La base publique des villes ne connaît que les
+                agglomérations.
               </span>
             </span>
           </span>

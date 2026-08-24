@@ -14,6 +14,7 @@ import {
 } from "@/lib/auth/garde";
 import { getConfiguration, type Configuration } from "@/lib/data/configuration";
 import { getPaysParNomFr, getMontantFraisFixe } from "@/lib/data/referentiels";
+import { localitesParNomPays } from "@/lib/data/localites";
 import {
   EMETTEUR,
   MAX_PARTICIPANTS,
@@ -794,6 +795,21 @@ export interface DonneesFormulaireOM {
    * serveur refuse — en plus d'une discordance d'hydratation.
    */
   dateMinimum: string;
+  /**
+   * Localités ajoutées à la main, indexées par NOM FRANÇAIS de pays.
+   *
+   * Complètent — sans les remplacer — les ~148 000 villes du paquet
+   * `country-state-city` que le formulaire charge côté navigateur. Cette base ne
+   * connaît que les agglomérations : les sites de production (Nachtigal, Song
+   * Loulou, Memve'ele) n'y figurent pas, et sa liste n'est pas modifiable
+   * puisqu'elle vit dans `node_modules`.
+   *
+   * Indexées par nom français et non par code ISO : c'est sous cette forme que le
+   * formulaire connaît le pays choisi, comme `zoneParPays`. Passer des codes ISO
+   * obligerait le composant client à porter une correspondance de plus pour
+   * aboutir au même endroit.
+   */
+  villesAjoutees: Record<string, string[]>;
 }
 
 export async function lireDonneesFormulaireOM(): Promise<DonneesFormulaireOM> {
@@ -801,7 +817,7 @@ export async function lireDonneesFormulaireOM(): Promise<DonneesFormulaireOM> {
   // peut créer un OM pour n'importe quel employé actif (décision du 22/08/2026).
   await exigerSession();
 
-  const [employes, pays, zones, bareme, configuration] = await Promise.all([
+  const [employes, pays, zones, bareme, configuration, villesAjoutees] = await Promise.all([
     prisma.employe.findMany({
       where: { actif: true },
       orderBy: [{ nom: "asc" }, { prenoms: "asc" }],
@@ -824,6 +840,7 @@ export async function lireDonneesFormulaireOM(): Promise<DonneesFormulaireOM> {
       select: { codeStatut: true, codeZone: true, montantJournalier: true },
     }),
     getConfiguration(),
+    localitesParNomPays(),
   ]);
 
   const zoneParPays: Record<string, number> = {};
@@ -856,6 +873,7 @@ export async function lireDonneesFormulaireOM(): Promise<DonneesFormulaireOM> {
     ageRetraite: configuration.ageRetraite,
     maxParticipants: MAX_PARTICIPANTS,
     dateMinimum: versChampDate(aujourdhuiLocal()),
+    villesAjoutees,
   };
 }
 

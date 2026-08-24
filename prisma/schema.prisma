@@ -190,11 +190,58 @@ model Pays {
   continent Continent
   codeZone  Int       @map("code_zone") @db.SmallInt
 
-  zone     Zone            @relation(fields: [codeZone], references: [code])
-  missions OrdreMission[]
+  zone      Zone           @relation(fields: [codeZone], references: [code])
+  missions  OrdreMission[]
+  localites Localite[]
 
   @@index([codeZone], map: "idx_pays_zone")
   @@map("pays")
+}
+
+/// Localité ajoutée à la main, en complément de la liste de villes du paquet
+/// `country-state-city`.
+///
+/// ── Pourquoi cette table existe ──────────────────────────────────────────────
+///
+/// Les suggestions de ville viennent d'une base ouverte qui ne connaît que les
+/// agglomérations. Or l'EDC envoie ses agents sur des SITES : Nachtigal, Song
+/// Loulou, Memve'ele. Aucun n'y figure, et l'agent qui les tape voit « aucune
+/// suggestion » — ce qui donne l'impression que le champ refuse sa saisie, alors
+/// que le champ est libre.
+///
+/// La liste du paquet n'est pas modifiable (elle est dans `node_modules`, donc
+/// réécrite à chaque installation). Les ajouts vivent donc en base, et sont
+/// FUSIONNÉS aux suggestions à l'affichage.
+///
+/// ⚠️ Cette table ne contraint RIEN. `ordre_mission.ville_destination` reste un
+/// texte libre, sans clé étrangère vers ici : un OM ancien porte des villes qui
+/// n'ont jamais été « déclarées », et une localité retirée ne doit pas casser
+/// l'historique. Ces lignes servent uniquement à PROPOSER.
+model Localite {
+  id       BigInt @id @default(autoincrement())
+  /// Le pays auquel la localité s'ajoute. C'est la cascade pays → ville du
+  /// formulaire : une localité n'est proposée que pour son pays.
+  codePays String @map("code_pays") @db.Char(2)
+  nom      String @db.VarChar(120)
+
+  /// Retrait = désactivation, jamais suppression. Une ligne effacée emporterait
+  /// avec elle qui l'avait ajoutée et quand — or c'est précisément ce qu'on veut
+  /// pouvoir consulter quand une localité douteuse apparaît dans les suggestions.
+  actif     Boolean   @default(true)
+  creeLe    DateTime  @default(now()) @map("cree_le") @db.Timestamptz(6)
+  creePar   BigInt?   @map("cree_par")
+  retireLe  DateTime? @map("retire_le") @db.Timestamptz(6)
+  retirePar BigInt?   @map("retire_par")
+
+  pays Pays @relation(fields: [codePays], references: [codeIso])
+  /// `SetNull` et non `Cascade` : le compte qui a ajouté la localité peut être
+  /// supprimé un jour, la localité doit lui survivre. Perdre l'auteur est
+  /// acceptable, perdre la localité ne l'est pas.
+  auteur  Utilisateur? @relation("localiteCreePar", fields: [creePar], references: [id], onDelete: SetNull)
+  retirant Utilisateur? @relation("localiteRetirePar", fields: [retirePar], references: [id], onDelete: SetNull)
+
+  @@index([codePays], map: "idx_localite_pays")
+  @@map("localite")
 }
 
 /// Barème de l'indemnité journalière : statut × zone. 40 lignes, figées
@@ -360,6 +407,8 @@ model Utilisateur {
   feriesSaisis        JourFerie[]
   notifications       Notification[]
   configurations      Configuration[]
+  localitesAjoutees   Localite[]      @relation("localiteCreePar")
+  localitesRetirees   Localite[]      @relation("localiteRetirePar")
 
   @@map("utilisateur")
 }
