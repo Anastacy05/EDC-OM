@@ -4,7 +4,12 @@ import { prisma } from "@/lib/data/client";
 import {
   exigerAdministrateur,
   exigerSession,
-  peutAccederAuMatricule,
+  // COMMENTÉ (24/08/2026) — `peutAccederAuMatricule` n'est plus utilisé ici : la
+  // lecture des ordres de mission est ouverte à tout compte authentifié, pour que
+  // chacun puisse télécharger le document d'un collègue. La garde reste employée
+  // par `lib/data/employes.ts`, où le cloisonnement du dossier personnel garde
+  // tout son sens.
+  // peutAccederAuMatricule,
   type Session,
 } from "@/lib/auth/garde";
 import { getConfiguration, type Configuration } from "@/lib/data/configuration";
@@ -444,8 +449,22 @@ export async function creerOrdreMission(valide: OMValide): Promise<ResultatCreat
 }
 
 export async function lireParticipation(idOM: string, matricule: string): Promise<OMDetailDTO | null> {
-  const session = await exigerSession();
-  if (!peutAccederAuMatricule(session, matricule)) throw new ErreurOM("interdit", "Accès interdit.");
+  // ── Lecture ouverte à tout compte authentifié (décidé le 24/08/2026) ────────
+  //
+  // COMMENTÉ (24/08/2026) — la garde par matricule. Elle produisait deux des
+  // symptômes signalés : la fiche d'un OM créé pour un collègue répondait par la
+  // page d'erreur (`interdit`), et sur une mission collective la liste des
+  // participants était filtrée au seul demandeur — d'où « je vois 2 OM dans
+  // l'aperçu, un seul après enregistrement », alors que les deux participations
+  // existaient bien en base.
+  //
+  // La raison de l'ouverture est le TÉLÉCHARGEMENT : un agent doit pouvoir sortir
+  // le document d'un collègue, et une fiche qu'il ne peut pas ouvrir rend le bouton
+  // inatteignable. Les transitions restent réservées à l'administrateur, et
+  // `BlocActions` n'est rendu que pour lui.
+  //
+  // if (!peutAccederAuMatricule(session, matricule)) throw new ErreurOM("interdit", "Accès interdit.");
+  await exigerSession();
   let id: bigint;
   try { id = BigInt(idOM); } catch { return null; }
   const om = await prisma.ordreMission.findUnique({
@@ -453,25 +472,23 @@ export async function lireParticipation(idOM: string, matricule: string): Promis
     include: { pays: { select: { nomFr: true } }, participations: true },
   });
   if (!om || om.participations.length === 0) return null;
-  // ── Matricule VIDE = « la mission, par son premier participant » ───────────
-  //
-  // Seul un administrateur arrive ici avec une chaîne vide : la garde ci-dessus a
-  // déjà refusé tous les autres (`session.matricule === ""` est impossible). Et il
-  // y arrive tout le temps, car un compte administrateur n'a pas de matricule et la
-  // redirection de création, `/om/<id>?cree=1`, ne porte aucun participant.
-  //
-  // ⚠️ Sans ce cas, l'écran qui suit l'enregistrement d'un ordre de mission
-  // répondait 404 à son propre auteur — le chemin le plus fréquent de la
-  // fonctionnalité. Constaté le 23/08/2026 en écrivant les tests de bout en bout.
+  // Matricule VIDE = « la mission, par son premier participant ». C'est le cas de la
+  // redirection qui suit une création (`/om/<id>?cree=1`, sans participant) et celui
+  // d'un compte administrateur, qui n'a pas de matricule. Sans lui, l'écran de
+  // confirmation répondait 404 à l'auteur de l'OM — le chemin le plus fréquent de la
+  // fonctionnalité. Constaté le 23/08/2026.
   if (matricule !== "" && !om.participations.some((p) => p.matricule === matricule)) return null;
   return {
     id: String(om.id), ulid: om.ulid, paysDestination: om.pays.nomFr.trim(), codePays: om.codePays.trim(),
     villeDestination: om.villeDestination, viaPassage: om.viaPassage, motif: om.motif,
     financement: om.financement, moyenTransport: om.moyenTransport,
     dateDepart: versChampDate(om.dateDepart), dateRetour: versChampDate(om.dateRetour), creeLe: om.creeLe.toISOString(),
-    participants: om.participations
-      .filter((p) => session.role === "ADMINISTRATEUR" || p.matricule === matricule)
-      .map(dtoParticipant),
+    // TOUS les participants, pour tout le monde : la navigation entre eux est ce qui
+    // permet de télécharger chaque document d'une mission collective.
+    //
+    // COMMENTÉ (24/08/2026) — le filtre qui ne gardait que le demandeur.
+    // .filter((p) => session.role === "ADMINISTRATEUR" || p.matricule === matricule)
+    participants: om.participations.map(dtoParticipant),
   };
 }
 
@@ -687,11 +704,17 @@ interface LigneBruteOM {
  * SON statut. Une mission à trois agents produit donc trois lignes, dont une peut
  * être bloquée pendant que les deux autres sont confirmées.
  *
- * ── Ce que la garde impose ───────────────────────────────────────────────────
+ * ── Ce que la garde impose, et ce qu'elle n'impose PLUS (24/08/2026) ─────────
  *
- * Un agent ne voit **que ses propres participations** : le filtre sur `matricule`
- * est écrasé par celui de la session pour un non-administrateur, il n'est donc pas
- * contournable en trafiquant l'URL. Un administrateur voit tout et peut filtrer.
+ * `exigerSession()` : tout compte authentifié voit **toutes** les participations,
+ * et `matricule` n'est qu'un filtre d'affichage. La raison est opérationnelle —
+ * un agent doit pouvoir TÉLÉCHARGER l'ordre de mission d'un collègue, parce que
+ * c'est souvent lui qui prépare le dossier de la mission.
+ *
+ * Ce n'est pas un relâchement général : les TRANSITIONS restent réservées à
+ * l'administrateur (`exigerAdministrateur` dans chacune), et le dossier personnel
+ * reste cloisonné (`lireFicheEmploye`). Ce qui est ouvert, c'est la lecture d'une
+ * pièce qui circule de toute façon sur papier une fois signée.
  *
  * ── Pourquoi du SQL brut ─────────────────────────────────────────────────────
  *
@@ -821,23 +844,41 @@ export async function lireDonneesFormulaireOM(): Promise<DonneesFormulaireOM> {
 }
 
 export async function listerOM(filtres: FiltresOM = {}): Promise<ResultatListeOM> {
-  const session = await exigerSession();
+  // La session n'est plus LUE, mais elle est toujours EXIGÉE : c'est la garde qui
+  // ferme la liste à un appelant non authentifié. La valeur de retour n'est pas
+  // conservée depuis le 24/08/2026, la portée ne dépendant plus du rôle.
+  await exigerSession();
 
   // Page assainie : un `?page=0`, `?page=-3` ou `?page=abc` venu de l'URL ne doit
   // pas produire un OFFSET négatif, que PostgreSQL rejetterait.
   const page =
     Number.isFinite(filtres.page) && (filtres.page ?? 0) >= 1 ? Math.floor(filtres.page!) : 1;
 
-  // ⚠️ L'écrasement, et non la fusion : un agent qui passerait `?matricule=` d'un
-  // collègue verrait ses missions. C'est le seul contrôle qui compte ici.
-  const matricule =
-    session.role === "ADMINISTRATEUR" ? filtres.matricule?.trim() || null : session.matricule;
-
-  // Un compte technique sans matricule et sans rôle admin ne peut voir aucune
-  // participation : renvoyer une liste vide est plus juste que de tout montrer.
-  if (matricule === null && session.role !== "ADMINISTRATEUR") {
-    return { lignes: [], total: 0, page, nombrePages: 1 };
-  }
+  // ── Le matricule est un FILTRE, pas une restriction (décidé le 24/08/2026) ──
+  //
+  // Tout utilisateur authentifié voit toutes les participations, et peut donc
+  // filtrer sur qui il veut. La raison est opérationnelle : un agent doit pouvoir
+  // TÉLÉCHARGER l'ordre de mission d'un collègue — c'est souvent lui qui prépare le
+  // dossier de la mission, et il ne peut pas imprimer ce qu'il ne voit pas.
+  //
+  // COMMENTÉ (24/08/2026) — l'écrasement du filtre par le matricule de la session.
+  // Il cloisonnait la liste par agent, ce qui produisait trois symptômes signalés :
+  // un OM créé pour un collègue n'apparaissait pas dans /om, sa fiche répondait 404,
+  // et une mission collective ne montrait qu'un participant. Le cloisonnement reste
+  // en place pour le DOSSIER PERSONNEL (`lireFicheEmploye`), qui n'a pas la même
+  // finalité : y accéder n'aide personne à faire partir une mission.
+  //
+  // ⚠️ Les TRANSITIONS restent réservées à l'administrateur — `confirmerParticipation`,
+  // `annulerParticipation` et `refuserParticipation` portent chacune
+  // `exigerAdministrateur()`. Ouvrir la lecture n'ouvre pas l'écriture.
+  //
+  // const matricule =
+  //   session.role === "ADMINISTRATEUR" ? filtres.matricule?.trim() || null : session.matricule;
+  //
+  // if (matricule === null && session.role !== "ADMINISTRATEUR") {
+  //   return { lignes: [], total: 0, page, nombrePages: 1 };
+  // }
+  const matricule = filtres.matricule?.trim() || null;
 
   const recherche = filtres.recherche?.trim() || null;
   // `%` posés ici et non dans le SQL : la valeur reste un paramètre lié, donc les

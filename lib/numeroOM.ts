@@ -120,3 +120,30 @@ export function numeroCommeImprime(numeroStocke: string): string {
   if (!parts) return numeroStocke; // format inconnu : on n'invente rien
   return `${String(parts.compteur).padStart(LARGEUR_COMPTEUR, "0")}${SUFFIXE_DOCUMENT}`;
 }
+
+/**
+ * Le compteur SEUL, tel que la balise `{numeroOM}` du gabarit l'attend : `"0042"`.
+ *
+ * ── Pourquoi cette fonction existe (défaut constaté le 24/08/2026) ───────────
+ *
+ * Le gabarit imprime `N° {numeroOM}/EDC/DG/DRH/SDARHAS`. Lui passer la valeur
+ * stockée `0042/2026` produit donc sur le papier :
+ *
+ *     N° 0042/2026/EDC/DG/DRH/SDARHAS
+ *
+ * L'année s'intercale au milieu du suffixe administratif, alors qu'elle n'a rien à
+ * y faire : elle est dans la donnée pour rendre `numero_om` unique d'une année sur
+ * l'autre (le compteur repart à 1), **pas pour être imprimée**. Le commentaire en
+ * tête de ce module l'annonçait — « le suffixe est DANS le document, pas dans la
+ * donnée » — mais rien ne retirait l'année avant de remplir la balise.
+ *
+ * Cette fonction est donc l'unique passerelle entre la colonne et le gabarit. Elle
+ * vaut aussi pour le fac-similé (`OMPreview`), qui recompose le même suffixe : les
+ * deux doivent montrer strictement la même chose, sinon l'aperçu cesse d'être un
+ * aperçu.
+ */
+export function numeroPourGabarit(numeroStocke: string): string {
+  const parts = decomposerNumero(numeroStocke);
+  if (!parts) return numeroStocke; // format inconnu : on n'invente rien
+  return String(parts.compteur).padStart(LARGEUR_COMPTEUR, "0");
+}

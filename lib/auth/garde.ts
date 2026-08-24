@@ -195,10 +195,16 @@ export async function exigerFondateurOuEchouer(): Promise<Session> {
 /**
  * Vrai si la session peut agir sur les données de ce matricule.
  *
- * Un administrateur voit tout ; un utilisateur ne voit que SES propres OM et
- * congés. Sans ce contrôle, changer un identifiant dans l'URL suffirait à lire
- * le dossier d'un collègue — c'est exactement le défaut d'autorisation que la
- * doc appelle à traiter dans la couche de données.
+ * Un administrateur voit tout ; un utilisateur ne voit que SON propre dossier
+ * personnel et SES congés. Sans ce contrôle, changer un identifiant dans l'URL
+ * suffirait à lire le dossier d'un collègue — c'est exactement le défaut
+ * d'autorisation que la doc appelle à traiter dans la couche de données.
+ *
+ * ⚠️ **Ne s'applique PLUS aux ordres de mission** (décidé le 24/08/2026). La
+ * lecture d'un OM est ouverte à tout compte authentifié, parce qu'un agent doit
+ * pouvoir télécharger le document d'un collègue dont il prépare la mission. Le
+ * dossier personnel, lui, reste cloisonné : y accéder n'aide personne à faire
+ * partir une mission. Voir `lib/data/om.ts` et §17.10 de MODELE-DONNEES.md.
  */
 export function peutAccederAuMatricule(session: Session, matricule: string): boolean {
   if (session.role === "ADMINISTRATEUR") return true;

@@ -26,9 +26,16 @@ import Pagination from "@/app/personnel/Pagination";
  *      sans qu'aucun avertissement n'apparaisse — l'inverse exact de la garantie
  *      annoncée par MODELE-DONNEES.md.
  *   2. **Toutes les participations partaient au navigateur** avant d'y être
- *      filtrées. Un agent recevait donc les missions de ses collègues, lisibles
- *      dans l'onglet réseau, alors que l'écran ne lui en montrait qu'une partie.
- *      Le filtrage est maintenant dans le SQL, sous la garde du DAL.
+ *      filtrées, et l'écran n'en montrait qu'une partie : ce qui était caché était
+ *      quand même lisible dans l'onglet réseau. Le filtrage et la pagination sont
+ *      maintenant dans le SQL — la page ne reçoit que ses 25 lignes.
+ *
+ * ── La liste montre TOUS les OM, à tout le monde (24/08/2026) ────────────────
+ *
+ * Un agent y voit les missions de ses collègues, et c'est voulu : il doit pouvoir
+ * en télécharger le document, parce que c'est souvent lui qui prépare le dossier.
+ * `?matricule=` est donc un filtre de confort, plus une restriction. Les boutons
+ * d'action, eux, ne sont rendus que pour un administrateur.
  *
  * ── Ce que cet écran ne fait plus ────────────────────────────────────────────
  *

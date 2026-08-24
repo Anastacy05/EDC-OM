@@ -5,7 +5,7 @@ import { lireParticipation, lireDocumentOM } from "@/lib/data/om";
 import { lireSession } from "@/lib/auth/garde";
 import { lignesVisasVierges } from "@/lib/buildDocument";
 import { formatDateFR, dureeEnJours } from "@/lib/dateUtils";
-import { numeroCommeImprime } from "@/lib/numeroOM";
+import { numeroCommeImprime, numeroPourGabarit } from "@/lib/numeroOM";
 import { titrePageClass, carteClass } from "@/lib/styles";
 import type { OrdreMissionDocument } from "@/types/om";
 import RetourVers from "@/components/RetourVers";
@@ -53,26 +53,17 @@ export default async function OMDetailPage({ params, searchParams }: Parametres)
   const session = await lireSession();
   if (!session) notFound();
 
-  // Le matricule demandé, ou celui de la session à défaut. Un administrateur qui
-  // arrive sans paramètre doit voir quelque chose : on le laisse alors lire la
-  // mission par son premier participant, résolu plus bas.
+  // Le matricule demandé, ou celui de la session à défaut. Une chaîne vide signifie
+  // « la mission, par son premier participant » : c'est le cas d'un administrateur,
+  // qui n'a pas de matricule, et celui de la redirection qui suit une création.
   const matricule = matriculeVoulu?.trim() || session.matricule || "";
 
-  // ⚠️ `lireParticipation` LÈVE `ErreurOM("interdit")` quand le matricule n'est
-  // pas accessible. On ne l'intercepte pas : la frontière d'erreur de Next affiche
-  // alors sa page, ce qui est le bon comportement pour une tentative d'accès à un
-  // dossier qui n'est pas le sien. L'intercepter pour afficher « introuvable »
-  // confirmerait au passage que l'OM existe.
-  //
-  // Le matricule VIDE est passé exprès pour un administrateur : c'est ainsi qu'on
-  // demande « la mission, par son premier participant ». Un compte administrateur
-  // n'a pas de matricule, et la redirection qui suit l'enregistrement
-  // (`/om/<id>?cree=1`) ne porte aucun participant — sans ce cas, l'auteur d'un OM
-  // recevait un 404 sur l'écran de confirmation de sa propre création.
-  const detail =
-    matricule || session.role === "ADMINISTRATEUR"
-      ? await lireParticipation(id, matricule)
-      : null;
+  // La lecture est ouverte à tout compte authentifié (décision du 24/08/2026) : un
+  // agent doit pouvoir ouvrir la fiche d'un collègue pour en télécharger le
+  // document. Ce sont les ACTIONS qui restent réservées à l'administrateur, plus
+  // bas — `BlocActions` n'est rendu que pour lui, et chaque fonction du DAL porte
+  // sa propre garde.
+  const detail = await lireParticipation(id, matricule);
 
   // Un administrateur sans paramètre : on prend le premier participant de la
   // mission. `notFound()` sinon — mission inexistante, ou dont l'appelant ne fait
@@ -93,7 +84,9 @@ export default async function OMDetailPage({ params, searchParams }: Parametres)
   // `undefined` : le type du document est optionnel partout, et un `null` s'y
   // afficherait littéralement.
   const apercu: OrdreMissionDocument = {
-    numeroOM: document.numeroOM,
+    // Le COMPTEUR seul : `OMPreview` recompose « /EDC/DG/DRH/SDARHAS » comme le
+    // gabarit. Passer la valeur stockée afficherait l'année au milieu du suffixe.
+    numeroOM: numeroPourGabarit(document.numeroOM),
     nom: document.nom,
     prenoms: document.prenoms,
     grade: document.grade,

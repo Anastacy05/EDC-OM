@@ -1122,7 +1122,16 @@ describe("Gardes des transitions et de la lecture", () => {
     );
   });
 
-  test("un agent ne voit que ses propres participations, même en trafiquant le filtre", async () => {
+  test("un agent voit TOUTES les participations, et peut filtrer sur un collègue", async () => {
+    // ── Règle changée le 24/08/2026 ──────────────────────────────────────────
+    //
+    // La lecture était cloisonnée par matricule. Elle est ouverte à tout compte
+    // authentifié, pour une raison opérationnelle : un agent doit pouvoir
+    // TÉLÉCHARGER l'ordre de mission d'un collègue — c'est souvent lui qui prépare
+    // le dossier de la mission, et il ne peut pas imprimer ce qu'il ne voit pas.
+    //
+    // Le cloisonnement subsiste là où il a du sens : le DOSSIER PERSONNEL
+    // (`lireFicheEmploye`), éprouvé par `tests/e2e/recherche.test.mts`.
     const admineur = await admin();
     const sien = await creer(admineur, [M3]);
     const autre = await creer(admineur, [M1]);
@@ -1130,26 +1139,28 @@ describe("Gardes des transitions et de la lecture", () => {
 
     const session = await agent();
 
-    // Le filtre `matricule` de l'URL est ÉCRASÉ par celui de la session : la
-    // restriction n'est pas contournable en trafiquant l'adresse. L'ancien écran
-    // envoyait au contraire TOUTES les participations au navigateur avant d'y
-    // filtrer — lisibles dans l'onglet réseau.
-    const page = await session.obtenir(`/om?matricule=${M1}`);
-    assert.equal(page.statut, 200);
-    const vus = matriculesDesLignes(page.corps, LIGNES_OM);
-    assert.ok(!vus.has(M1), `L'agent voit la participation de ${M1} : ${[...vus].join(", ")}`);
-    assert.deepEqual([...vus].filter((m) => m !== M3), [], `Matricules étrangers : ${[...vus].join(", ")}`);
-
-    // Sans filtre il voit les siennes — sinon l'assertion ci-dessus passerait pour
-    // la mauvaise raison : une liste vide en toutes circonstances.
-    const sienne = await session.obtenir("/om");
+    // Le filtre de l'URL est honoré, y compris sur un collègue : c'est un filtre,
+    // plus une restriction.
+    const filtree = await session.obtenir(`/om?matricule=${M1}`);
+    assert.equal(filtree.statut, 200);
+    const vus = matriculesDesLignes(filtree.corps, LIGNES_OM);
     assert.ok(
-      matriculesDesLignes(sienne.corps, LIGNES_OM).has(M3),
-      "L'agent ne voit même pas ses propres participations."
+      vus.has(M1),
+      `Le filtre sur ${M1} ne renvoie rien pour un utilisateur ordinaire : ${[...vus].join(", ")}`
     );
+    assert.deepEqual(
+      [...vus].filter((m) => m !== M1),
+      [],
+      `Le filtre laisse passer d'autres matricules : ${[...vus].join(", ")}`
+    );
+
+    // Et sans filtre, il voit les siennes ET celles des autres.
+    const toutes = matriculesDesLignes((await session.obtenir("/om")).corps, LIGNES_OM);
+    assert.ok(toutes.has(M3), "L'agent ne voit pas ses propres participations.");
+    assert.ok(toutes.has(M1), "L'agent ne voit pas les participations de ses collègues.");
   });
 
-  test("un agent ne peut pas ouvrir la fiche d'un collègue", async () => {
+  test("un agent ouvre la fiche d'un collègue, mais n'y trouve aucun bouton d'action", async () => {
     const admineur = await admin();
     const creation = await creer(admineur, [M1]);
     assert.ok(creation.id, creation.corps.slice(0, 300));
@@ -1157,17 +1168,64 @@ describe("Gardes des transitions et de la lecture", () => {
     const session = await agent();
     const reponse = await session.obtenir(fiche(creation.id, M1));
 
-    // `lireParticipation` LÈVE `interdit` et la page ne l'intercepte pas : la
-    // frontière d'erreur de Next répond. C'est volontaire — afficher
-    // « introuvable » confirmerait au passage que l'OM existe.
-    assert.ok(
-      reponse.statut >= 400,
-      `La fiche d'un collègue est servie avec un statut ${reponse.statut}.`
+    assert.equal(
+      reponse.statut,
+      200,
+      `La fiche d'un collègue est refusée (statut ${reponse.statut}) : le bouton de téléchargement devient inatteignable.`
     );
-    assert.ok(
-      !pageContient(reponse, "NKOLO"),
-      "Le nom du collègue apparaît malgré le refus d'accès."
-    );
+    assert.ok(pageContient(reponse, "NKOLO"), "La fiche du collègue ne montre pas l'agent.");
+
+    // ⚠️ Ce qui compte maintenant : la lecture est ouverte, l'ÉCRITURE non.
+    // `BlocActions` n'est rendu que pour un administrateur, et le test précédent
+    // vérifie qu'une sollicitation directe de l'action est refusée de toute façon.
+    for (const bouton of ["Confirmer", "Annuler", "Refuser"]) {
+      assert.ok(
+        !pageContient(reponse, `>${bouton}`),
+        `Le bouton « ${bouton} » est rendu pour un utilisateur ordinaire.`
+      );
+    }
+  });
+
+  test("une mission collective montre TOUS ses participants, y compris à un agent", async () => {
+    // ── Le symptôme signalé le 24/08/2026 ────────────────────────────────────
+    //
+    // « Je choisis plusieurs personnes, dans l'aperçu je vois bien les 2 OM, mais
+    // après enregistrement il n'y en a qu'un. » Les deux participations étaient bien
+    // écrites : c'est la fiche qui filtrait la liste au seul demandeur, si bien que
+    // la navigation entre participants disparaissait — et avec elle l'accès au
+    // second document.
+    const admineur = await admin();
+    const creation = await creer(admineur, [M1, M2, M3]);
+    assert.ok(creation.id, creation.corps.slice(0, 400));
+    const idOM = creation.id;
+
+    assert.equal((await participations(idOM)).length, 3, "Les trois participations ne sont pas en base.");
+
+    const session = await agent();
+    // Vue depuis SA participation : les deux collègues doivent apparaître.
+    const page = await session.obtenir(fiche(idOM, M3));
+    assert.equal(page.statut, 200);
+    for (const autre of [M1, M2]) {
+      assert.ok(
+        page.corps.includes(`/om/${idOM}?participant=${autre}`),
+        `Le participant ${autre} n'est pas navigable depuis la fiche de ${M3}.`
+      );
+    }
+
+    // Et chacun des trois documents est effectivement téléchargeable.
+    for (const qui of [M1, M2, M3]) {
+      const document = await session.poster("/api/generate-om", {
+        idOrdreMission: idOM,
+        matricule: qui,
+      });
+      assert.equal(document.statut, 200, `Document de ${qui} refusé (statut ${document.statut}).`);
+      assert.ok(document.octets > 5_000, `Document de ${qui} suspect : ${document.octets} octets.`);
+    }
+
+    // Les trois numéros sont distincts : un document par agent, c'est la décision
+    // « un numéro par participant ».
+    const numeros = (await participations(idOM)).map((l) => l.numeroOM);
+    assert.equal(new Set(numeros).size, 3, `Numéros non distincts : ${numeros.join(", ")}`);
   });
 });
 
@@ -1176,7 +1234,7 @@ describe("Gardes des transitions et de la lecture", () => {
 // ---------------------------------------------------------------------------
 
 describe("/api/generate-om", () => {
-  test("refuse l'anonyme, l'identifiant mal formé, l'ancienne forme de corps et le matricule d'un collègue", async () => {
+  test("refuse l'anonyme, l'identifiant mal formé et l'ancienne forme de corps", async () => {
     const admineur = await admin();
     const creation = await creer(admineur, [M1]);
     assert.ok(creation.id, creation.corps.slice(0, 300));
@@ -1213,11 +1271,22 @@ describe("/api/generate-om", () => {
       "L'ancienne forme de corps est encore acceptée."
     );
 
+    // ── Le document d'un collègue est PERMIS (décidé le 24/08/2026) ──────────
+    //
+    // Ce test attendait un 403. C'est justement l'usage attendu : un agent prépare
+    // le dossier d'une mission et doit pouvoir en imprimer chaque ordre. Ce qui
+    // reste refusé, c'est de FABRIQUER un document — l'ancienne forme de corps,
+    // vérifiée juste au-dessus.
     const collegue = await (await agent()).poster("/api/generate-om", {
       idOrdreMission: creation.id,
       matricule: M1,
     });
-    assert.equal(collegue.statut, 403, "Un agent obtient le document d'un collègue.");
+    assert.equal(
+      collegue.statut,
+      200,
+      `Un agent n'obtient pas le document d'un collègue (statut ${collegue.statut}).`
+    );
+    assert.ok(collegue.octets > 5_000, `Document suspect : ${collegue.octets} octets.`);
 
     assert.equal(
       (await admineur.poster("/api/generate-om", {
@@ -1263,6 +1332,26 @@ describe("/api/generate-om", () => {
     assert.ok(
       !document.includes("SANS VALEUR"),
       "Un OM en attente porte une mention « sans valeur » : le DG ne peut pas le signer."
+    );
+
+    // ── Le numéro IMPRIMÉ : le compteur, puis le suffixe, sans l'année ────────
+    //
+    // ⚠️ La balise du gabarit est `N° {numeroOM}/EDC/DG/DRH/SDARHAS`. Lui passer la
+    // valeur stockée « 0001/2026 » imprimait « N° 0001/2026/EDC/DG/DRH/SDARHAS » :
+    // l'année s'intercalait au milieu du suffixe administratif, alors qu'elle n'est
+    // dans la colonne que pour l'unicité d'une année sur l'autre. Signalé le
+    // 24/08/2026 — et invisible pour les tests d'alors, qui vérifiaient le nom du
+    // fichier et la mention, jamais le numéro tel qu'il sort sur le papier.
+    const compteur = decomposerNumero(numeroOM)!.compteur;
+    const imprime = `N° ${String(compteur).padStart(4, "0")}/EDC/DG/DRH/SDARHAS`;
+    assert.ok(
+      document.includes(imprime),
+      `Le numéro imprimé n'est pas « ${imprime} ». Extrait : ` +
+        (document.match(/N° [^<]{0,40}/)?.[0] ?? "introuvable")
+    );
+    assert.ok(
+      !document.includes(`/${decomposerNumero(numeroOM)!.annee}/EDC`),
+      "L'année s'imprime au milieu du suffixe administratif."
     );
   });
 

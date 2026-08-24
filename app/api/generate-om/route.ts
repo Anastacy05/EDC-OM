@@ -5,6 +5,7 @@ import { lireDocumentOM, ErreurOM } from "@/lib/data/om";
 import { lignesVisasVierges } from "@/lib/buildDocument";
 import { formatDateFR } from "@/lib/dateUtils";
 import { normaliserMatricule } from "@/lib/data/employes.validation";
+import { numeroPourGabarit } from "@/lib/numeroOM";
 import type { OrdreMissionDocument } from "@/types/om";
 
 // Obligatoire : docxtemplater/pizzip ont besoin de Node (fs, buffers), pas d'Edge.
@@ -121,7 +122,12 @@ export async function POST(request: NextRequest) {
   // format du document, et le laisser au navigateur laissait passer des formats
   // divergents selon l'écran appelant.
   const pourGabarit: OrdreMissionDocument = {
-    numeroOM: document.numeroOM,
+    // ⚠️ Le COMPTEUR seul, pas la valeur stockée. La balise du gabarit est
+    // `N° {numeroOM}/EDC/DG/DRH/SDARHAS` : lui passer « 0042/2026 » imprimait
+    // « N° 0042/2026/EDC/DG/DRH/SDARHAS », l'année s'intercalant au milieu du
+    // suffixe administratif. Elle est dans la colonne pour l'unicité d'une année
+    // sur l'autre, pas pour figurer sur la pièce. Constaté le 24/08/2026.
+    numeroOM: numeroPourGabarit(document.numeroOM),
     nom: document.nom,
     prenoms: document.prenoms,
     grade: document.grade,

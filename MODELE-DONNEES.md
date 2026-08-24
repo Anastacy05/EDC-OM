@@ -1725,7 +1725,7 @@ Vérifié sur la base réelle, serveur de production :
 3. **`x-forwarded-for` est falsifiable** si l'application n'est pas derrière un proxy qui le réécrit. La limitation par IP est donc un ralentisseur ; celle par compte reste efficace.
 4. **Le cache du Service Worker ne sera pas protégé par le mot de passe** (étape 11) : sur un poste volé, les pages déjà en cache restent lisibles. Inhérent au choix hors ligne. **À trancher : purger le cache à la déconnexion ?**
 5. **Toutes les routes sont désormais rendues à la demande** (`ƒ`), parce que le Header lit la session dans le layout racine. C'est le prix d'un état de connexion visible partout ; `<Suspense>` limite le coût au seul fragment concerné, mais n'annule pas la bascule. Réversible avec `cacheComponents`.
-6. ~~**`/api/generate-om` n'est protégée qu'en authentification, pas en autorisation**~~ — **corrigé le 23/08/2026 (étape 8).** La route ne reçoit plus que `{ idOrdreMission, matricule }` et lit tout en base sous la garde `peutAccederAuMatricule` ; l'ancienne forme de corps est refusée en 400, un matricule de collègue en 403. Détail au §17.4.
+6. ~~**`/api/generate-om` n'est protégée qu'en authentification, pas en autorisation**~~ — **corrigé le 23/08/2026 (étape 8).** La faille n'était pas l'absence de cloisonnement par matricule, c'était que **le contenu du document venait du corps de la requête** : n'importe qui obtenait un OM au contenu de son choix. La route ne reçoit plus que `{ idOrdreMission, matricule }` et lit tout en base ; l'ancienne forme de corps est refusée en 400. Le document d'un **collègue** est en revanche délibérément permis depuis le 24/08/2026 (§17.10) — c'est l'usage attendu. Détail au §17.4.
 
 ### 14.4 Où vit la sécurité
 
@@ -1978,6 +1978,7 @@ porte ces colonnes.
 8. **L'année du numéro est celle de la création**, pas du départ. Une mission de janvier 2027 préparée en décembre 2026 consomme un numéro 2026 — c'est voulu, le compteur appartient à l'année d'émission du papier produit ce jour-là.
 9. **Étapes VISA : le verso continue de s'imprimer avec trois lignes vierges.** La spécification demande de les commenter, mais une boucle `{#visas}` vide **supprime le tableau imprimé**, alors que ses cases doivent rester présentes pour le remplissage manuel au retour de mission. C'est la spécification qui doit être amendée, pas le code.
 10. **Table `frais` toujours vide** : créée à l'étape 3, alimentée par aucun écran (§2, §11).
+11. **Tout utilisateur voit toutes les participations, indemnités comprises** (§17.10). C'est une décision, pas un oubli — mais elle signifie qu'il n'existe **aucune confidentialité** entre agents sur les ordres de mission. Si les RH voulaient un jour restreindre certaines missions (une enquête interne, par exemple), il faudrait une notion de visibilité par OM, qu'aucune colonne ne porte aujourd'hui.
 
 ### 17.8 Deux écarts entre le plan approuvé et ce qui est implémenté
 
@@ -1990,10 +1991,75 @@ Signalés parce que le plan de l'étape 8 disait autre chose, et que le code a �
 
 | Niveau | Fichier | Couverture |
 |---|---|---|
-| Unitaire | `tests/om.test.mts` | **81 tests.** Composition et décomposition du numéro, aller-retour, borne 9999 ; les cinq `NOT NULL`, dates inversées, départ passé, doublon de participant ; bornes inclusives ; statuts écartés ; ULID (longueur, alphabet, horodatage relisible). |
-| Bout en bout | `tests/e2e/om.test.mts` | **32 tests** contre le vrai serveur et la vraie base. Création transactionnelle et instantané figé ; idempotence ULID ; rechargement et épuisement de plage ; `EXCLUDE` ; concurrence ; conflit confirmé, conflit en attente, blocage nominatif et sa levée ; transitions et traces d'audit ; gardes (POST direct, cloisonnement des listes et des fiches) ; `/api/generate-om` (401, 400, 403, 404, `.docx` nommé, mention lue **dans** `word/document.xml`) ; péremption puis régularisation ; pagination, recherche sans accents, filtres. |
+| Unitaire | `tests/om.test.mts` | **84 tests.** Composition et décomposition du numéro, aller-retour, borne 9999, **numéro passé au gabarit contre numéro affiché** ; les cinq `NOT NULL`, dates inversées, départ passé, doublon de participant ; bornes inclusives ; statuts écartés ; ULID (longueur, alphabet, horodatage relisible). |
+| Bout en bout | `tests/e2e/om.test.mts` | **33 tests** contre le vrai serveur et la vraie base. Création transactionnelle et instantané figé ; idempotence ULID ; rechargement et épuisement de plage ; `EXCLUDE` ; concurrence ; conflit confirmé, conflit en attente, blocage nominatif et sa levée ; transitions et traces d'audit ; gardes (POST direct refusé, boutons d'action absents pour un utilisateur ordinaire) ; **lecture ouverte : liste complète, fiche d'un collègue, mission collective à trois documents** ; `/api/generate-om` (401, 400, 404, `.docx` nommé, **numéro imprimé** et mention lus **dans** `word/document.xml`) ; péremption puis régularisation ; pagination, recherche sans accents, filtres. |
 
-Total de la suite : **81 unitaires + 77 bout en bout, tous au vert le 23/08/2026.**
+Total de la suite : **84 unitaires + 78 bout en bout, tous au vert le 24/08/2026.**
 
 **Reste à faire manuellement** : créer un OM à trois participants, vérifier les trois
 numéros sur le document imprimé (`N° 0042/EDC/DG/DRH/SDARHAS`), confirmer, annuler.
+
+### 17.10 La lecture des OM est ouverte à tous — décidé le 24/08/2026
+
+Le premier jet cloisonnait par matricule : un utilisateur ordinaire ne voyait que ses
+propres participations, et la fiche d'un collègue lui était refusée. C'était une
+transposition mécanique de la règle du **dossier personnel**, et elle était fausse ici.
+
+**La raison, opérationnelle :** un agent doit pouvoir **télécharger** l'ordre de mission
+d'un collègue. C'est souvent lui qui prépare le dossier de la mission, et il ne peut pas
+imprimer ce qu'il ne voit pas. Le cloisonnement produisait trois symptômes signalés à
+l'usage, tous de la même cause :
+
+| Symptôme observé | Cause |
+|---|---|
+| Un OM créé pour un autre employé n'apparaissait pas dans `/om` | `listerOM` écrasait le filtre `matricule` par celui de la session. |
+| Le lien de la fiche renvoyait un 404 (ou la page d'erreur) | `lireParticipation` levait `ErreurOM("interdit")`. |
+| « Je choisis plusieurs personnes, l'aperçu montre 2 OM, après enregistrement il n'y en a qu'un » | Les deux participations **étaient bien écrites** : la fiche filtrait la liste des participants au seul demandeur, ce qui faisait disparaître la navigation entre eux — et l'accès au second document. |
+
+**Ce qui est ouvert, et ce qui ne l'est pas :**
+
+| | Utilisateur | Administrateur |
+|---|---|---|
+| Voir toutes les participations (`/om`) | ✅ | ✅ |
+| Filtrer sur n'importe quel matricule | ✅ | ✅ |
+| Ouvrir la fiche de n'importe quelle participation | ✅ | ✅ |
+| Télécharger le `.docx` de n'importe quel agent | ✅ | ✅ |
+| Créer un OM pour n'importe quel employé actif | ✅ | ✅ |
+| **Confirmer / annuler / refuser** | ❌ | ✅ |
+| **Filtre « conflits à arbitrer »** | ❌ (sans suite pour lui) | ✅ |
+| **Dossier personnel d'un collègue** (`/personnel/<matricule>`) | ❌ | ✅ |
+
+`peutAccederAuMatricule` **reste en place** et ne bouge pas : elle garde le dossier
+personnel et les congés. Y accéder n'aide personne à faire partir une mission, alors que
+lire un ordre de mission, si. Les deux règles ne se confondent plus.
+
+Les trois transitions portent chacune `exigerAdministrateur()` dans le DAL, et
+`BlocActions` n'est rendu que pour un administrateur. **Ouvrir la lecture n'ouvre pas
+l'écriture** — c'est éprouvé par sollicitation directe des Server Actions.
+
+**Conséquence assumée :** l'indemnité journalière d'un agent (150 000 à 350 000 FCFA selon
+la zone et le statut) est visible par tous, à l'écran comme sur le document. Elle l'est de
+toute façon sur le papier qui circule pour signature. La masquer à l'écran aurait été une
+protection illusoire, puisque le `.docx` la porte.
+
+### 17.11 Le numéro imprimé : un défaut trouvé à l'usage (24/08/2026)
+
+Le document sortait avec **`N° 0001/2026/EDC/DG/DRH/SDARHAS`**. L'année s'intercalait au
+milieu du suffixe administratif.
+
+La balise du gabarit est `N° {numeroOM}/EDC/DG/DRH/SDARHAS`, et on lui passait la valeur
+stockée telle quelle. Or l'année n'est dans la colonne que pour **rendre `numero_om` unique
+d'une année sur l'autre** — le compteur repart à 1 chaque janvier. Elle n'a jamais été
+destinée à l'impression, et le commentaire de `lib/numeroOM.ts` le disait déjà : « le
+suffixe est DANS le document, pas dans la donnée ». Rien ne retirait l'année avant de
+remplir la balise.
+
+`numeroPourGabarit()` est désormais l'unique passerelle entre la colonne et le gabarit, et
+elle sert aux deux rendus — le `.docx` et le fac-similé `OMPreview`, qui recompose le même
+suffixe. Les deux doivent montrer strictement la même chose, sinon l'aperçu cesse d'être un
+aperçu.
+
+**Pourquoi les tests ne l'avaient pas vu :** ils vérifiaient le nom du fichier
+(`ordre_mission_0001-2026.docx`, correct) et la présence de la mention de statut dans
+`word/document.xml`, mais jamais le **numéro tel qu'il sort sur le papier**. Un test lit
+maintenant la chaîne complète dans le XML et refuse `/<année>/EDC`.

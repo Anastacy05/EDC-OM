@@ -242,8 +242,11 @@ export default function FiltresOM({
           />
         </label>
 
-        {/* Réservé à l'administrateur : c'est lui qui arbitre les conflits, et un
-            agent ne voit de toute façon que ses propres participations. */}
+        {/* Réservé à l'administrateur : lui seul peut arbitrer un conflit, donc lui
+            seul a de quoi faire de cette liste. Depuis le 24/08/2026 un agent voit
+            pourtant toutes les participations, y compris bloquées — le badge le lui
+            dit sur la ligne, mais un filtre « à arbitrer » n'aurait aucune suite
+            pour lui. */}
         {estAdministrateur && (
           <label className="flex items-center gap-2 text-sm text-blue-900">
             <input

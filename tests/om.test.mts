@@ -6,6 +6,7 @@ import {
   composerNumero,
   decomposerNumero,
   numeroCommeImprime,
+  numeroPourGabarit,
   LARGEUR_COMPTEUR,
   LIMITE_COMPTEUR,
   SUFFIXE_DOCUMENT,
@@ -154,6 +155,29 @@ describe("Numéro tel qu'imprimé", () => {
 
   test("un format inconnu est rendu tel quel — on n'invente rien", () => {
     assert.equal(numeroCommeImprime("format-inattendu"), "format-inattendu");
+  });
+});
+
+describe("Numéro passé au gabarit", () => {
+  test("le COMPTEUR seul : le gabarit ajoute le suffixe lui-même", () => {
+    // ⚠️ Le défaut que ce test protège (signalé le 24/08/2026) : la balise du
+    // gabarit est `N° {numeroOM}/EDC/DG/DRH/SDARHAS`. Lui passer la valeur stockée
+    // imprimait « N° 0042/2026/EDC/DG/DRH/SDARHAS » — l'année au milieu du suffixe
+    // administratif, alors qu'elle n'est dans la colonne que pour rendre
+    // `numero_om` unique d'une année sur l'autre.
+    assert.equal(numeroPourGabarit("0042/2026"), "0042");
+    assert.equal(numeroPourGabarit("0001/2026"), "0001");
+  });
+
+  test("les deux fonctions se complètent : compteur + suffixe = numéro imprimé", () => {
+    // C'est l'invariant qui garantit que l'écran et le papier disent la même chose.
+    // S'il tombe, le fac-similé cesse d'être un fac-similé.
+    const stocke = "0042/2026";
+    assert.equal(numeroPourGabarit(stocke) + SUFFIXE_DOCUMENT, numeroCommeImprime(stocke));
+  });
+
+  test("un format inconnu est rendu tel quel", () => {
+    assert.equal(numeroPourGabarit("format-inattendu"), "format-inattendu");
   });
 });
 
