@@ -3,20 +3,27 @@ import { AlertTriangle } from "lucide-react";
 /**
  * Avertissement : ces chiffres viennent des données de DÉMONSTRATION.
  *
- * ── Pourquoi cet encart est nécessaire, et pas seulement souhaitable ─────────
+ * ⚠️ PLUS UTILISÉ depuis le 26/08/2026 (étape 14, MODELE-DONNEES.md §13) : les
+ * trois pages `/rapports/*` lisent maintenant lib/data/rapports.ts, donc la
+ * base réelle — l'affichage de cet encart serait devenu FAUX dans l'autre
+ * sens (il ferait croire à des données fictives alors qu'elles sont réelles).
+ * Son rendu a été commenté dans chacune des trois pages, avec un renvoi ici.
+ *
+ * Conservé (non supprimé, convention du projet §0) : le composant réapparaîtra
+ * peut-être sous une autre forme si un jour un rapport combine base et jeu de
+ * démonstration (environnement de recette, par exemple).
+ *
+ * ── Ce que cet encart signalait, pour mémoire ─────────────────────────────
  *
  * Depuis l'étape 8, les ordres de mission sont enregistrés **en base**. Or
- * `lib/analytics.ts` lit toujours `mockOMs`, donc `localStorage`. Les trois écrans
- * de rapports comptent par conséquent des missions fictives, et **ne comptent aucune
- * des missions réelles**.
+ * `lib/analytics.ts` lisait `mockOMs`, donc `localStorage`. Les trois écrans
+ * de rapports comptaient par conséquent des missions fictives, et **ne comptaient
+ * aucune** des missions réelles.
  *
- * Sans cet encart, le défaut serait invisible : les graphiques s'affichent, les
+ * Sans cet encart, le défaut aurait été invisible : les graphiques s'affichent, les
  * chiffres ont l'air plausibles, et rien ne signale qu'ils sont faux. Un état
- * présenté à une direction sur cette base serait pire qu'un écran vide — un écran
+ * présenté à une direction sur cette base aurait été pire qu'un écran vide — un écran
  * vide se remarque, un chiffre faux se cite.
- *
- * La bascule est prévue à l'étape 12 (`lib/analytics.ts` sur la base), et
- * `lib/mockData.ts` sera commenté à l'étape 14, quand plus rien n'en dépendra.
  */
 export default function AvertissementDonneesDemo() {
   return (

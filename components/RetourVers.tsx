@@ -70,7 +70,7 @@ export default function RetourVers({
         className="inline-flex w-fit items-center gap-1.5 rounded-lg py-1.5 pr-3 text-sm
                    font-medium text-blue-700 transition-colors duration-200 hover:text-blue-900
                    hover:underline focus-visible:outline-none focus-visible:ring-2
-                   focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                   focus-visible:ring-blue-500 focus-visible:ring-offset-2 print:hidden"
       >
         <ArrowLeft size={16} aria-hidden="true" />
         {libelle}

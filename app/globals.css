@@ -48,3 +48,15 @@ table,
 .tabulaire {
   font-variant-numeric: tabular-nums;
 }
+
+/* AJOUTÉ le 26/08/2026 — export PDF des rapports (§11, étape 12) : la
+   fenêtre d'impression du navigateur EST l'export PDF (rien d'autre à coder
+   pour ce format, contrairement à XLSX). `print:hidden` (Tailwind) masque au
+   cas par cas les boutons/filtres non pertinents sur papier ; cette règle
+   couvre ce qui est commun à TOUS les rapports : le fond bleu pâle des pages
+   gâcherait de l'encre sans ajouter d'information imprimée. */
+@media print {
+  body {
+    background: #ffffff;
+  }
+}

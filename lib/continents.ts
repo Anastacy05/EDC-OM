@@ -114,6 +114,40 @@ export function continentDuPaysParCode(codeISO: string): Continent | null {
   return null;
 }
 
+/**
+ * Mapping INVERSE du `continentEnum` calculé par `prisma/seed.ts` (qui part
+ * de `continentDuPaysParCode` ci-dessus pour remplir `pays.continent` la
+ * PREMIÈRE fois). Sert à reconvertir la colonne `pays.continent`, une fois LUE
+ * EN BASE, vers le libellé français de ce fichier.
+ *
+ * AJOUTÉ le 26/08/2026 — à ne PAS confondre avec `continentDuPaysParCode` :
+ * cette fonction-ci ne classe rien, elle relit un classement déjà fait.
+ *
+ * ⚠️ Pourquoi c'est important de partir de la colonne, pas de recalculer :
+ * la table `pays` peut avoir été modifiée depuis le seed (l'admin peut avoir
+ * corrigé le classement d'un territoire contesté, ou ajouté un pays absent de
+ * `country-state-city`, la bibliothèque qui a peuplé le seed). Une fonction
+ * qui reclasse par ses propres listes statiques (comme
+ * `continentDuPaysParCode`) ignorerait silencieusement cette correction — la
+ * base ferait foi pour l'admin, mais pas pour l'écran.
+ */
+export function continentDepuisColonneBD(valeurColonne: string): Continent | null {
+  switch (valeurColonne) {
+    case "AFRIQUE":
+      return "Afrique";
+    case "AMERIQUE":
+      return "Amérique";
+    case "ASIE":
+      return "Asie";
+    case "EUROPE":
+      return "Europe";
+    case "OCEANIE":
+      return "Océanie";
+    default:
+      return null; // valeur d'énum inconnue — ne devrait pas arriver, mais ne fait pas planter l'appelant
+  }
+}
+
 // ---------------------------------------------------------------------------
 // COMPLÉTÉ (21/08/2026) — 49 territoires manquaient.
 //

@@ -3,14 +3,22 @@
 import { ComposableMap, Geographies, Geography } from "react-simple-maps";
 import worldData from "world-atlas/countries-110m.json";
 import countriesIso from "i18n-iso-countries";
-import fr from "i18n-iso-countries/langs/fr.json";
-import { continentDuPaysParCode, type Continent } from "@/lib/continents";
-
-countriesIso.registerLocale(fr);
+import type { Continent } from "@/lib/continents";
 
 // world-atlas indexe ses géométries par code ISO NUMÉRIQUE (ex. "120" pour
 // le Cameroun) — tout le reste de l'appli (zones, référentiels) raisonne en
-// alpha-2 ("CM"). i18n-iso-countries fait le pont dans les deux sens.
+// alpha-2 ("CM"). `i18n-iso-countries` ne sert plus qu'à CE pont technique.
+//
+// MODIFIÉ le 26/08/2026 : le NOM affiché et le CONTINENT de chaque pays
+// venaient auparavant de `i18n-iso-countries`/`continentDuPaysParCode` —
+// recalculés par ce composant, donc potentiellement en désaccord avec la
+// table `pays` si elle a été corrigée depuis le seed initial (territoire
+// contesté, pays ajouté manuellement...). Les deux viennent maintenant du
+// `referentielPays` reçu en prop, lu en base par
+// `lib/data/rapports.ts` → `lireReferentielPays`. Cette bibliothèque ne fait
+// plus que la conversion numérique → alpha-2 : une correspondance de norme
+// ISO, stable, qu'aucun administrateur n'a de raison de vouloir corriger —
+// contrairement à un nom affiché ou un classement continental.
 
 interface CarteMondeProps {
   // Mode "monde" : chaque pays est coloré selon le total de SON continent,
@@ -19,13 +27,20 @@ interface CarteMondeProps {
   // individuellement (onClicPays) — c'est le contenu du modal.
   continentAffiche?: Continent;
   comptesParContinent?: Partial<Record<Continent, number>>;
-  comptesParPays?: Record<string, number>; // clé = nom FR du pays
+  /**
+   * Clé = code ISO alpha-2 (ex. `"CM"`), PAS le nom français — cf. le
+   * commentaire de `MissionRapport.codePays` (lib/data/rapports.ts) pour le
+   * bug que corrige cette convention.
+   */
+  comptesParPays?: Record<string, number>;
   onClicContinent?: (continent: Continent) => void;
-  onClicPays?: (nomPaysFr: string) => void;
-}
-
-function nomFrDuPays(nomAnglais: string, codeISO: string): string {
-  return countriesIso.getName(codeISO, "fr") ?? nomAnglais;
+  /** Reçoit le CODE ISO du pays cliqué (pas son nom). */
+  onClicPays?: (codeISO: string) => void;
+  /**
+   * Nom et continent de chaque pays, LUS EN BASE — cf. commentaire d'en-tête.
+   * Obligatoire : sans lui, aucun pays ne pourrait être ni nommé ni classé.
+   */
+  referentielPays: Record<string, { nomFr: string; continent: Continent | null }>;
 }
 
 // Échelle de couleur simple : plus le compte est élevé, plus le bleu est
@@ -46,6 +61,7 @@ export default function CarteMonde({
   comptesParPays,
   onClicContinent,
   onClicPays,
+  referentielPays,
 }: CarteMondeProps) {
   const maxContinent = comptesParContinent
     ? Math.max(0, ...Object.values(comptesParContinent).map((v) => v ?? 0))
@@ -59,16 +75,20 @@ export default function CarteMonde({
           geographies.map((geo) => {
             const codeISO = countriesIso.numericToAlpha2(geo.id as string);
             if (!codeISO) return null;
-            const continent = continentDuPaysParCode(codeISO);
-            if (!continent) return null;
+
+            // Pays absent de la table (territoire sans continent classé à la
+            // création, ou nouveau tracé du fond de carte jamais ajouté en
+            // base) : rien à afficher plutôt qu'une valeur devinée.
+            const entree = referentielPays[codeISO];
+            if (!entree || !entree.continent) return null;
+            const continent = entree.continent;
+            const nomFr = entree.nomFr;
 
             // Mode zoom : ne dessine que le continent demandé.
             if (continentAffiche && continent !== continentAffiche) return null;
 
-            const nomFr = nomFrDuPays(geo.properties.name, codeISO);
-
             const count = continentAffiche
-              ? (comptesParPays?.[nomFr] ?? 0)
+              ? (comptesParPays?.[codeISO] ?? 0)
               : (comptesParContinent?.[continent] ?? 0);
             const max = continentAffiche ? maxPays : maxContinent;
 
@@ -77,7 +97,7 @@ export default function CarteMonde({
                 key={geo.rsmKey}
                 geography={geo}
                 onClick={() => {
-                  if (continentAffiche) onClicPays?.(nomFr);
+                  if (continentAffiche) onClicPays?.(codeISO);
                   else onClicContinent?.(continent);
                 }}
                 style={{
