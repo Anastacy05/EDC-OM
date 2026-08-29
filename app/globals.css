@@ -5,8 +5,8 @@
    livré par create-next-app a donc été RETIRÉ, parce qu'il cassait l'app pour
    tout utilisateur dont le système est en thème sombre :
 
-   il basculait --foreground à #ededed, or la règle `body` ci-dessous est hors
-   de tout @layer et l'emporte donc sur `.bg-blue-50` (@layer utilities) —
+   il basculait --foreground à #ededed, or la règle `body` ci-dessous était hors
+   de tout @layer et l'emportait donc sur `.bg-blue-50` (@layer utilities) —
    en CSS, une règle non calquée bat toujours une règle calquée. Résultat :
    texte #ededed hérité sur fond bleu clair, soit un contraste de 1.07:1.
    Les cellules du tableau des OM, qui n'ont pas de couleur propre, devenaient
@@ -32,13 +32,38 @@
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  /* Reprend --font-sans ci-dessus au lieu de l'ancien Arial en dur : sans ça,
-     `body` (hors @layer, donc prioritaire) écraserait la police pour tout
-     élément ne portant pas explicitement la classe `font-sans`. */
-  font-family: var(--font-sans);
+/* CORRIGÉ le 29/08/2026 — `body` calqué dans `@layer base`, alors qu'il ne
+   l'était pas avant.
+   ─────────────────────────────────────────────────────────────────────────
+   Le commentaire ci-dessus explique déjà le mécanisme (règle non calquée qui
+   bat toujours une règle calquée) pour justifier le retrait du thème sombre —
+   mais SANS réaliser que ce même mécanisme empêchait aussi
+   `<body className="bg-blue-50">` (app/layout.tsx) de s'appliquer, dans TOUS
+   les cas, pas seulement en thème sombre : `--background` valait `#ffffff` en
+   dur, rien ne le faisait varier, et la règle non calquée l'imposait donc
+   TOUJOURS — `bg-blue-50` sur `<body>` n'a en réalité jamais été bleu.
+   Symptômes observés : le fond bleu ne descend pas jusqu'en bas de page sur
+   les écrans qui posent leur propre `<div bg-blue-50>` plus court que la
+   fenêtre (le corps blanc apparaît en dessous), et des pages ENTIÈREMENT
+   blanches sur celles qui n'ont pas leur propre fond et comptaient hériter du
+   bleu du corps (`/rapports`, `/om`, `/om/nouveau`, `/personnel` et ses
+   sous-pages — toutes bâties sur `conteneurLargeClass`, qui ne pose aucun
+   fond).
+   `@layer base` calque la règle : les classes utilitaires (`@layer
+   utilities`, dont `bg-blue-50`) la dominent désormais comme prévu — sans
+   rien changer au comportement recherché pour le thème sombre (toujours
+   retiré) ni au `color-scheme` ci-dessus (resté hors calque, propriété du
+   navigateur, pas une couleur d'arrière-plan). */
+@layer base {
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    /* Reprend --font-sans ci-dessus au lieu de l'ancien Arial en dur : sans ça,
+       `body` écraserait la police pour tout élément ne portant pas
+       explicitement la classe `font-sans` — mais calqué désormais, donc une
+       classe utilitaire plus spécifique la dominerait de toute façon si besoin. */
+    font-family: var(--font-sans);
+  }
 }
 
 /* Chiffres à largeur fixe dans les tableaux et les montants : sans ça, les
@@ -54,7 +79,12 @@ table,
    pour ce format, contrairement à XLSX). `print:hidden` (Tailwind) masque au
    cas par cas les boutons/filtres non pertinents sur papier ; cette règle
    couvre ce qui est commun à TOUS les rapports : le fond bleu pâle des pages
-   gâcherait de l'encre sans ajouter d'information imprimée. */
+   gâcherait de l'encre sans ajouter d'information imprimée.
+
+   VOLONTAIREMENT laissée HORS de tout @layer, à la différence de la règle
+   `body` ci-dessus : c'est justement ce statut non calqué qui lui garantit de
+   toujours dominer `bg-blue-50` et consorts au moment d'imprimer — la mettre
+   dans un calque la ferait perdre face à ces mêmes classes utilitaires. */
 @media print {
   body {
     background: #ffffff;
