@@ -1,10 +1,18 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { UserPlus, CircleSlash, MailWarning, Pencil } from "lucide-react";
+import { UserPlus, CircleSlash, MailWarning } from "lucide-react";
 import { listerPersonnel, PAR_PAGE } from "@/lib/data/employes";
 import { getStatuts, getDepartements } from "@/lib/data/referentiels";
 import { libelleMotifSortie } from "@/lib/data/employes.validation";
-import { boutonPrimaire, carteClass, titrePageClass, TAILLE_ICONE } from "@/lib/styles";
+import {
+  boutonPrimaire,
+  carteClass,
+  conteneurLargeClass,
+  ligneCliquableClass,
+  lienEtenduClass,
+  titrePageClass,
+  TAILLE_ICONE,
+} from "@/lib/styles";
 import FiltresPersonnel from "./FiltresPersonnel";
 import Pagination from "./Pagination";
 
@@ -49,7 +57,7 @@ export default async function PersonnelPage({
   const [statuts, departements] = await Promise.all([getStatuts(), getDepartements()]);
 
   return (
-    <div className="flex min-h-full w-full flex-col gap-6 bg-blue-50 p-6 sm:p-10">
+    <div className={conteneurLargeClass}>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className={titrePageClass}>Personnel</h1>
         <Link href="/personnel/nouveau" className={boutonPrimaire}>
@@ -140,20 +148,39 @@ async function Tableau({ filtres }: { filtres: Recherche }) {
               <th scope="col" className="px-4 py-3 font-semibold">Statut</th>
               <th scope="col" className="px-4 py-3 font-semibold">Direction</th>
               <th scope="col" className="px-4 py-3 font-semibold">Compte</th>
-              <th scope="col" className="px-4 py-3 font-semibold">
-                <span className="sr-only">Actions</span>
-              </th>
             </tr>
           </thead>
           <tbody>
+            {/* COMMENTÉ (24/08/2026) — la colonne « Modifier » et son en-tête ont
+                été retirés : la ligne entière mène maintenant à la fiche, et cette
+                fiche EST le formulaire de modification. La colonne donnait donc un
+                second lien vers la même adresse, et autant de libellés
+                « Modifier » identiques que de lignes.
+                <th scope="col"><span className="sr-only">Actions</span></th>
+                <td className="text-right"><Link …><Pencil /> Modifier</Link></td> */}
             {employes.map((e) => (
               <tr
                 key={e.matricule}
-                className={`border-b border-blue-100 last:border-0 hover:bg-blue-50/60 ${
+                className={`${ligneCliquableClass} ${
                   e.actif ? "" : "bg-slate-50 text-slate-500"
                 }`}
               >
-                <td className="px-4 py-3 font-mono">{e.matricule}</td>
+                <td className="px-4 py-3 font-mono">
+                  {/* Le lien porte le matricule ET couvre la ligne entière : la
+                      colonne « Modifier » a disparu, elle donnait autant de liens
+                      identiques que de lignes. Le libellé accessible nomme la
+                      personne, sinon le lien s'annonce comme un matricule nu. */}
+                  <Link
+                    href={`/personnel/${encodeURIComponent(e.matricule)}`}
+                    className={`${lienEtenduClass} text-blue-700 hover:underline`}
+                  >
+                    {e.matricule}
+                    <span className="sr-only">
+                      {" "}
+                      — ouvrir la fiche de {e.nom} {e.prenoms}
+                    </span>
+                  </Link>
+                </td>
                 <td className="px-4 py-3">
                   <span className="font-medium">{e.nom}</span> {e.prenoms}
                   {/* État « désactivé » porté par une ICÔNE et un MOT, jamais par
@@ -184,24 +211,6 @@ async function Tableau({ filtres }: { filtres: Recherche }) {
                   ) : (
                     <span className="text-blue-900">Actif</span>
                   )}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <Link
-                    href={`/personnel/${encodeURIComponent(e.matricule)}`}
-                    className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-blue-700
-                               transition-colors duration-200 hover:bg-blue-100
-                               focus-visible:outline-none focus-visible:ring-2
-                               focus-visible:ring-blue-500"
-                  >
-                    <Pencil size={14} aria-hidden="true" />
-                    {/* Le nom dans le libellé accessible : sans lui, la colonne
-                        donne autant de liens « Modifier » identiques que de
-                        lignes, indistinguables hors contexte visuel. */}
-                    <span aria-hidden="true">Modifier</span>
-                    <span className="sr-only">
-                      Modifier la fiche de {e.nom} {e.prenoms}
-                    </span>
-                  </Link>
                 </td>
               </tr>
             ))}

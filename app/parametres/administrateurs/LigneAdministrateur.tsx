@@ -15,6 +15,7 @@ import {
 } from "./actions";
 import type { AdministrateurListe } from "@/lib/data/administrateurs";
 import { boutonDanger, TAILLE_ICONE } from "@/lib/styles";
+import BoutonConfirme from "@/components/BoutonConfirme";
 
 /**
  * Une ligne de la liste des administrateurs.
@@ -102,15 +103,24 @@ export default function LigneAdministrateur({
         {retrogradable && (
           <form action={action}>
             <input type="hidden" name="id" value={admin.id} />
-            <button
-              type="submit"
-              disabled={enCours}
+            <BoutonConfirme
+              titre="Retirer les droits d'administration ?"
+              message={
+                <>
+                  <strong>{admin.email}</strong> ne pourra plus gérer le personnel, les
+                  administrateurs ni arbitrer les ordres de mission. Son compte reste actif
+                  comme utilisateur ordinaire : il continue de se connecter et de créer des
+                  ordres de mission.
+                </>
+              }
+              libelleConfirmer="Retirer les droits"
+              danger
+              enCours={enCours}
               className={`${boutonDanger} text-xs`}
-              title="Le compte reste actif comme utilisateur ; il perd seulement ses droits d'administration."
             >
               <ShieldMinus size={TAILLE_ICONE} aria-hidden="true" />
               {enCours ? "Retrait…" : "Retirer les droits"}
-            </button>
+            </BoutonConfirme>
           </form>
         )}
       </div>

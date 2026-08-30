@@ -1,7 +1,14 @@
 import Image from "next/image";
 import Link from "next/link";
-import { FilePlus2, List } from "lucide-react";
-import { boutonPrimaire, boutonSecondaire, TAILLE_ICONE } from "@/lib/styles";
+import { redirect } from "next/navigation";
+import { FilePlus2, List, ShieldPlus, UserPlus, Users } from "lucide-react";
+import {
+  boutonPrimaire,
+  boutonSecondaire,
+  boutonDiscret,
+  TAILLE_ICONE,
+} from "@/lib/styles";
+import { lireSession } from "@/lib/auth/garde";
 
 /**
  * Accueil.
@@ -22,8 +29,20 @@ import { boutonPrimaire, boutonSecondaire, TAILLE_ICONE } from "@/lib/styles";
  * l'action principale (plein), « Consulter » la secondaire (contour) — c'est la
  * raison d'être de l'application, et lire une liste est toujours moins engageant
  * qu'une création.
+ *
+ * ── L'accueil n'est plus une porte anonyme (24/08/2026) ──────────────────────
+ *
+ * `proxy.ts` laissait `/` dans les routes publiques : la première ouverture de
+ * l'application montrait donc un écran avec deux boutons qui, cliqués, menaient à
+ * la connexion. On demandait de choisir avant d'avoir le droit d'entrer.
+ * La redirection ci-dessous remet la connexion en premier.
  */
-export default function Accueil() {
+export default async function Accueil() {
+  // Première visite : la page d'accueil n'est pas une porte d'entrée anonyme.
+  // La page de connexion reste publique afin que cette redirection soit utile.
+  const session = await lireSession();
+  if (!session) redirect("/connexion");
+
   return (
     <div className="flex min-h-full w-full flex-col items-center justify-center gap-12 bg-blue-50 p-6 sm:p-10">
       <div className="flex flex-col items-center gap-4 text-center">
@@ -64,6 +83,42 @@ export default function Accueil() {
           Consulter les ordres de mission
         </Link>
       </div>
+
+      {/* ── Raccourcis d'administration ─────────────────────────────────────
+          Rendus au seul administrateur : un utilisateur ordinaire cliquerait pour
+          recevoir un refus, ce qui est pire que de ne rien voir.
+
+          Ce ne sont pas des raccourcis vers les mêmes écrans que la barre de
+          navigation, mais vers les GESTES : « Personnel » mène à une liste, alors
+          que ce qu'on vient faire ici, c'est ajouter quelqu'un. Les trois libellés
+          sont donc des verbes.
+
+          « Nommer un administrateur » plutôt que « définir un membre du personnel
+          comme administrateur » : c'est la même chose en trois mots, et l'écran
+          d'arrivée porte déjà l'explication complète. Les deux dernières entrées
+          mènent au même écran par deux intentions distinctes — d'où l'ancre, qui
+          ouvre directement sur le formulaire. */}
+      {session.role === "ADMINISTRATEUR" && (
+        <div className="flex flex-col items-center gap-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-blue-900/60">
+            Administration
+          </p>
+          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+            <Link href="/personnel/nouveau" className={boutonSecondaire}>
+              <UserPlus size={TAILLE_ICONE} aria-hidden="true" />
+              Ajouter un membre du personnel
+            </Link>
+            <Link href="/parametres/administrateurs#ajouter" className={boutonSecondaire}>
+              <ShieldPlus size={TAILLE_ICONE} aria-hidden="true" />
+              Nommer un administrateur
+            </Link>
+            <Link href="/parametres/administrateurs" className={boutonDiscret}>
+              <Users size={TAILLE_ICONE} aria-hidden="true" />
+              Gérer les administrateurs
+            </Link>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

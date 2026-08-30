@@ -22,6 +22,16 @@ export default function Pagination({
   parametres,
   /** Chemin de base, sans les paramètres. */
   base,
+  /**
+   * Nom de ce qui est compté, au SINGULIER — le pluriel est ajouté par un « s ».
+   *
+   * Paramétré depuis le 23/08/2026 : ce composant est réutilisé par la liste des
+   * ordres de mission, qui compte des participations et non des employés. Le mot
+   * était écrit en dur à trois endroits, et une liste d'OM annonçait « 42 employés ».
+   * Dupliquer le composant pour un mot aurait garanti que les deux copies divergent
+   * sur l'accessibilité.
+   */
+  libelle = "employé",
 }: {
   page: number;
   nombrePages: number;
@@ -29,13 +39,19 @@ export default function Pagination({
   parPage: number;
   parametres: Record<string, string | undefined>;
   base: string;
+  libelle?: string;
 }) {
+  // Majuscule initiale pour le décompte, qui ouvre une phrase.
+  const Libelle = libelle.charAt(0).toUpperCase() + libelle.slice(1);
+  const pluriel = total > 1 ? "s" : "";
+
   if (nombrePages <= 1) {
     // Une seule page : la navigation n'a rien à proposer. On garde le décompte,
     // qui reste une information utile (« 12 employés »).
     return (
       <p className="text-sm text-slate-600">
-        {total} employé{total > 1 ? "s" : ""}
+        {total} {libelle}
+        {pluriel}
       </p>
     );
   }
@@ -75,11 +91,11 @@ export default function Pagination({
     <nav
       // Nommée : une page peut porter plusieurs zones de navigation, et un
       // lecteur d'écran les annonce alors toutes « navigation » sans distinction.
-      aria-label="Pagination de la liste du personnel"
+      aria-label={`Pagination de la liste (${libelle}s)`}
       className="flex flex-wrap items-center justify-between gap-3"
     >
       <p className="text-sm text-slate-600">
-        Employés <strong className="tabular-nums">{premier}</strong> à{" "}
+        {Libelle}s <strong className="tabular-nums">{premier}</strong> à{" "}
         <strong className="tabular-nums">{dernier}</strong> sur{" "}
         <strong className="tabular-nums">{total}</strong>
       </p>

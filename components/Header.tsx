@@ -26,9 +26,22 @@ import BarreNavigation, { SqueletteBarreNavigation } from "@/components/BarreNav
  *
  * ── Deux points qui ne sont pas décoratifs ────────────────────────────────────
  *
- * `relative` : le panneau mobile se positionne en `absolute top-full`, il lui
- * faut cet ancêtre positionné. Sans lui, il se placerait par rapport à la
- * fenêtre et se décalerait au défilement.
+ * `sticky top-0` (24/08/2026) : la barre restait en haut du DOCUMENT et
+ * disparaissait au défilement. Sur la liste des ordres de mission, qui fait
+ * plusieurs écrans de haut, il fallait remonter tout en haut pour changer de
+ * section. Elle reste maintenant collée en haut de la FENÊTRE.
+ *
+ * ⚠️ `relative` a été RETIRÉ en même temps, et ce n'est pas un oubli : `relative`
+ * et `sticky` posent tous deux `position`, donc l'un annule l'autre — et l'ordre
+ * dans l'attribut `class` n'y change rien, c'est celui de la feuille de style
+ * générée qui tranche. Les garder tous les deux rendait l'adhérence dépendante
+ * d'un détail de Tailwind. Rien n'est perdu : un élément `sticky` EST un élément
+ * positionné, donc il sert d'ancre au panneau mobile en `absolute top-full`
+ * exactement comme `relative` le faisait.
+ *
+ * `z-40` : au-dessus du contenu qui défile dessous. En dessous de `Confirmation`,
+ * qui passe par `<dialog>` et vit dans la couche supérieure — donc aucun réglage
+ * de `z-index` à accorder entre les deux.
  *
  * `bg-blue-600` et non `bg-blue-500` : changement du 21/08/2026, pour une raison
  * mesurée et non esthétique. Sur `bg-blue-500`, `text-white` ne donnait que
@@ -36,6 +49,10 @@ import BarreNavigation, { SqueletteBarreNavigation } from "@/components/BarreNav
  * ce que sont les libellés d'onglets. Sur `bg-blue-600`, le blanc atteint
  * **5,26:1**. Un seul cran d'écart, et tout le texte du header passe le seuil.
  * La bordure suit : `border-blue-700`.
+ *
+ * ⚠️ Le fond doit rester OPAQUE : une barre translucide laisserait voir le
+ * contenu défiler à travers, et le texte des onglets passerait alors sur des
+ * fonds quelconques — les contrastes mesurés ci-dessus ne vaudraient plus.
  *
  * ── Ce qui n'est plus ici ─────────────────────────────────────────────────────
  *
@@ -49,8 +66,8 @@ import BarreNavigation, { SqueletteBarreNavigation } from "@/components/BarreNav
 export default function Header() {
   return (
     <header
-      className="relative flex min-h-16 w-full items-center gap-2 border-b-2 border-blue-700
-                 bg-blue-600 px-3 sm:gap-4 sm:px-6 md:px-8"
+      className="sticky top-0 z-40 flex min-h-16 w-full items-center gap-2 border-b-2 border-blue-700
+                 bg-blue-600 px-3 shadow-sm shadow-blue-950/15 sm:gap-4 sm:px-6 md:px-8"
     >
       {/* ── Région gauche ─────────────────────────────────────────────────── */}
       <div className="flex flex-1 basis-0 items-center">

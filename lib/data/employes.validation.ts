@@ -11,7 +11,9 @@
  *   • `CHECK (date_embauche > date_naissance)` ;
  *   • `CHECK (NOT est_detache OR jours_conge_origine IS NOT NULL)` ;
  *   • `CHECK (nombre_medailles >= 0)` ;
- *   • `CHECK (actif OR desactive_le IS NOT NULL)`.
+ *   • `CHECK (actif OR desactive_le IS NOT NULL)` ;
+ *   • `CHECK (code_departement IS NOT NULL OR departement_libre IS NOT NULL)`
+ *     (`employe_direction_renseignee`, posée le 24/08/2026).
  *
  * Conséquence rassurante : un oubli ICI ne peut pas créer de donnée incohérente,
  * seulement une erreur PostgreSQL illisible. C'est pourquoi cette validation est
@@ -28,6 +30,8 @@
  * l'être par le formulaire (retour immédiat). Il ne contient donc que des
  * fonctions pures : aucun accès à la base, aucune lecture d'environnement.
  */
+
+import { estEmailValide, normaliserEmail } from "@/lib/email";
 
 /** Valeurs de l'enum `SituationFamille` du schéma, dans l'ordre d'affichage. */
 export const SITUATIONS_FAMILLE = [
@@ -145,6 +149,19 @@ export interface SaisieEmploye {
   dateEmbauche: string;
   codeStatut: string;
   codeDepartement: string;
+  departementLibre: string;
+  emailContact: string;
+  /**
+   * Case « cet employé pourra utiliser l'application ».
+   *
+   * Coché, elle rend `emailContact` obligatoire et déclenche la création du
+   * compte à l'enregistrement. L'implication ne va que dans ce sens : saisir une
+   * adresse n'ouvre AUCUN accès. C'est la demande explicite du 24/08/2026 (« et
+   * cette case cochée doit obliger de renseigner l'adresse mail, mais pas
+   * l'inverse ») — et c'est aussi la seule lecture sûre : une adresse notée sur
+   * une fiche ne vaut pas décision de donner un accès.
+   */
+  ouvrirCompte: boolean;
   nombreMedailles: string;
   estDetache: boolean;
   joursCongeOrigine: string;
@@ -155,14 +172,16 @@ export interface EmployeValide {
   matricule: string;
   nom: string;
   prenoms: string;
-  grade: string;
+  grade: string | null;
   fonction: string;
-  situationFamille: SituationFamille;
+  situationFamille: SituationFamille | null;
   indice: string | null;
   dateNaissance: Date;
   dateEmbauche: Date;
   codeStatut: string;
-  codeDepartement: string;
+  codeDepartement: string | null;
+  departementLibre: string | null;
+  emailContact: string | null;
   nombreMedailles: number;
   estDetache: boolean;
   joursCongeOrigine: number | null;
@@ -183,8 +202,13 @@ export interface ResultatValidation {
  * Cameroun est à UTC+1, donc à l'est — le décalage y va dans l'autre sens, mais
  * il existe. On construit donc la date en UTC explicitement : la colonne est de
  * type `DATE`, sans heure, et doit porter exactement le jour saisi.
+ *
+ * Exportée depuis le 22/08/2026 : la validation des ordres de mission
+ * (`lib/data/om.validation.ts`) a exactement le même besoin sur ses trois dates,
+ * et réécrire cette relecture du 31 février garantirait qu'une des deux copies
+ * finisse par diverger.
  */
-function analyserDate(valeur: string): Date | null {
+export function analyserDate(valeur: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(valeur.trim());
   if (!m) return null;
 
@@ -207,8 +231,8 @@ function analyserDate(valeur: string): Date | null {
   return d;
 }
 
-/** Nombre d'années révolues entre deux dates. */
-function anneesRevolues(depuis: Date, jusqua: Date): number {
+/** Nombre d'années révolues entre deux dates. Exportée pour la règle de retraite des OM. */
+export function anneesRevolues(depuis: Date, jusqua: Date): number {
   let ans = jusqua.getUTCFullYear() - depuis.getUTCFullYear();
   const moisEcart = jusqua.getUTCMonth() - depuis.getUTCMonth();
   if (moisEcart < 0 || (moisEcart === 0 && jusqua.getUTCDate() < depuis.getUTCDate())) {
@@ -260,9 +284,8 @@ export function validerEmploye(
   else if (prenoms.length > 150) erreurs.prenoms = "150 caractères maximum.";
 
   // ── Position ──────────────────────────────────────────────────────────────
-  const grade = saisie.grade.trim();
-  if (!grade) erreurs.grade = "Grade requis.";
-  else if (grade.length > 100) erreurs.grade = "100 caractères maximum.";
+  const grade = (saisie.grade ?? "").trim();
+  if (grade.length > 100) erreurs.grade = "100 caractères maximum.";
 
   // Texte libre, décidé le 19/08/2026 : la fonction dépend de l'organigramme et
   // n'est pas une liste fermée. Le référentiel POSTES a été supprimé parce qu'il
@@ -276,19 +299,47 @@ export function validerEmploye(
     erreurs.codeStatut = "Statut inconnu.";
   }
 
-  if (!saisie.codeDepartement) erreurs.codeDepartement = "Direction requise.";
-  else if (!options.codesDepartementsValides.has(saisie.codeDepartement)) {
+  // ── Direction : le code du référentiel, OU une saisie libre ───────────────
+  //
+  // L'erreur « Direction requise » est portée par `departementLibre` et non par
+  // `codeDepartement` : le formulaire affiche l'un ou l'autre champ selon le mode
+  // choisi, mais rend les deux messages, donc celui-ci s'affiche dans les deux
+  // cas. L'accrocher au `<select>` le rendrait invisible en saisie libre.
+  const departementLibre = saisie.departementLibre.trim();
+  if (saisie.codeDepartement && !options.codesDepartementsValides.has(saisie.codeDepartement)) {
     erreurs.codeDepartement = "Direction inconnue.";
   }
+  if (!saisie.codeDepartement && !departementLibre) {
+    erreurs.departementLibre = "Direction requise.";
+  } else if (departementLibre.length > 150) {
+    erreurs.departementLibre = "150 caractères maximum.";
+  }
 
-  if (!saisie.situationFamille) {
-    erreurs.situationFamille = "Situation de famille requise.";
-  } else if (!CODES_SITUATION.has(saisie.situationFamille)) {
+  if (saisie.situationFamille && !CODES_SITUATION.has(saisie.situationFamille)) {
     erreurs.situationFamille = "Situation de famille inconnue.";
   }
 
   const indice = saisie.indice.trim();
   if (indice.length > 10) erreurs.indice = "10 caractères maximum.";
+
+  // ── Courriel et ouverture de compte ───────────────────────────────────────
+  //
+  // L'adresse seule est FACULTATIVE : elle n'est qu'une note sur la fiche, qui
+  // préremplira la création du compte le jour où elle aura lieu. La case, elle,
+  // la rend obligatoire — sans adresse, il n'y a nulle part où envoyer le lien de
+  // mot de passe, donc le compte serait créé inutilisable.
+  //
+  // La forme est contrôlée même sans la case : une adresse fausse notée
+  // aujourd'hui serait recopiée telle quelle dans des mois, au moment où plus
+  // personne ne saurait la corriger.
+  const emailContact = normaliserEmail(saisie.emailContact);
+  if (saisie.ouvrirCompte && !emailContact) {
+    erreurs.emailContact =
+      "Adresse de courriel requise : c'est là que part le lien de définition du " +
+      "mot de passe. Décochez la case pour créer la fiche sans accès.";
+  } else if (emailContact && !estEmailValide(emailContact)) {
+    erreurs.emailContact = "Adresse de courriel invalide.";
+  }
 
   // ── Dates ─────────────────────────────────────────────────────────────────
   const dateNaissance = analyserDate(saisie.dateNaissance);
@@ -365,14 +416,16 @@ export function validerEmploye(
       matricule,
       nom,
       prenoms,
-      grade,
+      grade: grade || null,
       fonction,
-      situationFamille: saisie.situationFamille as SituationFamille,
+      situationFamille: saisie.situationFamille ? saisie.situationFamille as SituationFamille : null,
       indice: indice || null,
       dateNaissance: dateNaissance!,
       dateEmbauche: dateEmbauche!,
       codeStatut: saisie.codeStatut,
-      codeDepartement: saisie.codeDepartement,
+      codeDepartement: saisie.codeDepartement || null,
+      departementLibre: saisie.codeDepartement ? null : departementLibre,
+      emailContact: emailContact || null,
       nombreMedailles,
       estDetache: saisie.estDetache,
       joursCongeOrigine,
@@ -395,6 +448,9 @@ export function lireSaisie(formData: FormData): SaisieEmploye {
     dateEmbauche: texte("dateEmbauche"),
     codeStatut: texte("codeStatut"),
     codeDepartement: texte("codeDepartement"),
+    departementLibre: texte("departementLibre"),
+    emailContact: texte("emailContact"),
+    ouvrirCompte: formData.has("ouvrirCompte"),
     nombreMedailles: texte("nombreMedailles"),
     // Une case non cochée n'est PAS envoyée dans un formulaire HTML : son
     // absence vaut « faux ». Tester la présence, et non la valeur.

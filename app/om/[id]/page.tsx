@@ -1,377 +1,272 @@
-"use client";
-
-import { useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
-// useRouter : cf. la ligne commentée dans le composant (20/08/2026).
-import OMPreview from "@/components/OMPreview";
-import {
-  getMockOM,
-  confirmerParticipant,
-  annulerParticipant,
-  // supprimerParticipant, // COMMENTÉ (20/08/2026) — cf. handleSupprimer ci-dessous
-  // ajouterFrais, // COMMENTÉ (03/08/2026) — frais non gérés par l'appli pour l'instant
-} from "@/lib/mockData";
-import { buildDocumentForParticipant } from "@/lib/buildDocument";
-import { formatDateFR, formatHeureFR } from "@/lib/dateUtils";
+import { notFound } from "next/navigation";
+import Link from "next/link";
+import { AlertTriangle, Info } from "lucide-react";
+import { lireParticipation, lireDocumentOM } from "@/lib/data/om";
+import { lireSession } from "@/lib/auth/garde";
+import { lignesVisasVierges } from "@/lib/buildDocument";
+import { formatDateFR, dureeEnJours } from "@/lib/dateUtils";
+import { numeroCommeImprime, numeroPourGabarit } from "@/lib/numeroOM";
+import { titrePageClass, carteClass, conteneurFormClass } from "@/lib/styles";
+import type { OrdreMissionDocument } from "@/types/om";
 import RetourVers from "@/components/RetourVers";
-import { titrePageClass } from "@/lib/styles";
-import { useEstMonte } from "@/lib/useEstMonte";
-import { verifierConcurrence } from "@/lib/businessRules";
+import OMPreview from "@/components/OMPreview";
+import BadgeStatut from "../BadgeStatut";
+import BlocActions from "./BlocActions";
+import BoutonTelecharger from "./BoutonTelecharger";
 
-const statutStyles: Record<string, string> = {
-  EN_ATTENTE: "bg-amber-200 text-amber-800",
-  CONFIRME: "bg-green-200 text-green-800",
-  ANNULE: "bg-red-200 text-red-800",
-};
+/**
+ * Détail d'un ordre de mission, pour UN participant.
+ *
+ * ── Composant serveur ────────────────────────────────────────────────────────
+ *
+ * `useEstMonte` disparaît, et c'est le point. Il n'existait que pour masquer une
+ * discordance d'hydratation : `mockOMs` valait les données par défaut au rendu
+ * serveur et celles de `localStorage` côté navigateur, si bien qu'un OM créé par
+ * l'utilisateur était « introuvable » côté serveur et trouvé côté client. La page
+ * affichait donc un écran de chargement à chaque visite pour contourner un défaut
+ * qui n'existe plus dès que la donnée vient de la base.
+ *
+ * ── Le participant est choisi par MATRICULE, pas par index ───────────────────
+ *
+ * L'ancien écran naviguait entre les participants avec un index de tableau et un
+ * `?participant=<id>` où l'`id` était une clé de démonstration. La table n'a pas
+ * d'identifiant de substitution : sa clé primaire est le couple
+ * `(id_ordre_mission, matricule)`. L'URL porte donc le matricule, ce qui la rend
+ * stable et partageable — et surtout, c'est la valeur sur laquelle la garde
+ * d'autorisation travaille.
+ */
 
-export default function OMDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  // COMMENTÉ (20/08/2026) — handleSupprimer était son seul consommateur (il
-  // redirigeait vers /om quand la mission entière disparaissait). Reviendra
-  // avec l'action « Refuser » réservée à l'admin.
-  // const router = useRouter();
-  const searchParams = useSearchParams();
+interface Parametres {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ participant?: string; cree?: string; conflits?: string }>;
+}
 
-  // Garde-fou d'hydratation, comme sur /admin.
-  //
-  // `mockOMs` (lib/mockData.ts) vaut les données par DÉFAUT au rendu serveur et
-  // celles de localStorage côté navigateur. Sans ce garde-fou, un OM créé par
-  // l'utilisateur est INTROUVABLE côté serveur et TROUVÉ côté client : les deux
-  // rendus divergent complètement (branche « introuvable », centrée, contre la
-  // page de détail), React remonte une erreur d'hydratation et peut conserver
-  // le HTML du serveur — donc afficher « introuvable » pour un OM qui existe.
-  //
-  // Disparaîtra avec la base : les données viendront alors du serveur, qui les
-  // connaîtra (MODELE-DONNEES.md §13, étape 9).
-  const estMonte = useEstMonte();
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  return { title: `Ordre de mission ${id} — EDC OM` };
+}
 
-  const om = getMockOM(id);
-  const participantIdVoulu = searchParams.get("participant");
-  const indexInitial = om
-    ? Math.max(
-        0,
-        om.participants.findIndex((p) => p.id === participantIdVoulu)
-      )
-    : 0;
+export default async function OMDetailPage({ params, searchParams }: Parametres) {
+  const { id } = await params;
+  const { participant: matriculeVoulu, cree, conflits } = await searchParams;
 
-  const [index, setIndex] = useState(indexInitial);
-  const [tick, setTick] = useState(0); // force le re-rendu après mutation du mock
-  const [downloading, setDownloading] = useState(false);
-  const [erreurTelechargement, setErreurTelechargement] = useState("");
-  // const [nouveauFrais, setNouveauFrais] = useState({ type: "", montant: "" }); // COMMENTÉ (03/08/2026)
+  const session = await lireSession();
+  if (!session) notFound();
 
-  const refresh = () => setTick((t) => t + 1);
+  // Le matricule demandé, ou celui de la session à défaut. Une chaîne vide signifie
+  // « la mission, par son premier participant » : c'est le cas d'un administrateur,
+  // qui n'a pas de matricule, et celui de la redirection qui suit une création.
+  const matricule = matriculeVoulu?.trim() || session.matricule || "";
 
-  // Ce test vient AVANT celui sur `om` : au rendu serveur, `om` est
-  // systématiquement absent pour tout OM créé par l'utilisateur, et afficher
-  // « introuvable » serait à la fois faux et source d'écart d'hydratation.
-  // Placé après tous les hooks, jamais avant (règles des hooks React).
-  if (!estMonte) {
-    return (
-      <div className="min-h-full w-full bg-blue-50 flex items-center justify-center">
-        <p className="text-gray-500 text-sm">Chargement de l&apos;ordre de mission…</p>
-      </div>
-    );
-  }
+  // La lecture est ouverte à tout compte authentifié (décision du 24/08/2026) : un
+  // agent doit pouvoir ouvrir la fiche d'un collègue pour en télécharger le
+  // document. Ce sont les ACTIONS qui restent réservées à l'administrateur, plus
+  // bas — `BlocActions` n'est rendu que pour lui, et chaque fonction du DAL porte
+  // sa propre garde.
+  const detail = await lireParticipation(id, matricule);
 
-  if (!om || om.participants.length === 0) {
-    return (
-      <div className="min-h-full w-full bg-blue-50 flex items-center justify-center">
-        <p className="text-amber-700 text-lg">Ordre de mission introuvable.</p>
-      </div>
-    );
-  }
+  // Un administrateur sans paramètre : on prend le premier participant de la
+  // mission. `notFound()` sinon — mission inexistante, ou dont l'appelant ne fait
+  // pas partie. Les deux cas se ressemblent VOLONTAIREMENT : distinguer
+  // « n'existe pas » de « pas à vous » révélerait l'existence de la mission.
+  if (!detail || detail.participants.length === 0) notFound();
 
-  const indexClamped = Math.min(index, om.participants.length - 1);
-  const participant = om.participants[indexClamped];
-  const document = buildDocumentForParticipant(om, participant);
+  const courant =
+    detail.participants.find((p) => p.matricule === matricule) ?? detail.participants[0];
 
-  // La concurrence est vérifiée à la création (avertissement/blocage selon
-  // le statut de l'OM en conflit), mais rien n'empêchait jusqu'ici de
-  // confirmer un OM malgré un conflit devenu bloquant entre-temps (ex : deux
-  // OM en attente créés pour la même personne, dates qui se chevauchent —
-  // aucun blocage à la création puisque aucun des deux n'est encore
-  // confirmé ; puis on confirme le premier, puis le second, sans que rien
-  // ne s'y oppose). On revérifie donc ici, au moment précis de la
-  // confirmation — c'est la seule étape qui rend réellement l'OM "engageant".
-  const handleConfirmer = () => {
-    const resultat = verifierConcurrence(
-      participant.matricule,
-      om.dateDepart,
-      om.dateRetour,
-      om.id // exclut l'OM courant lui-même de la recherche de conflits
-    );
+  const document = await lireDocumentOM(id, courant.matricule);
+  if (!document) notFound();
 
-    if (resultat.niveau === "blocage") {
-      const conflit = resultat.conflits.find((c) => c.statut === "CONFIRME");
-      alert(
-        `Confirmation impossible : ${participant.nom} a déjà un OM confirmé sur cette période ` +
-          `(${conflit?.destination ?? "autre mission"}, du ${formatDateFR(conflit?.dateDepart)} ` +
-          `au ${formatDateFR(conflit?.dateRetour)}).`
-      );
-      return;
-    }
+  const duree = dureeEnJours(detail.dateDepart, detail.dateRetour);
+  const bloque = courant.blocageMotif !== null;
 
-    if (resultat.niveau === "avertissement") {
-      const conflit = resultat.conflits[0];
-      const continuer = confirm(
-        `Attention : ${participant.nom} a un autre OM en attente sur une période qui se ` +
-          `chevauche (${conflit?.destination ?? "autre mission"}). Confirmer quand même ?`
-      );
-      if (!continuer) return;
-    }
-
-    confirmerParticipant(om.id, participant.id);
-    refresh();
-  };
-
-  const handleAnnuler = () => {
-    if (!confirm(`Annuler l'OM confirmé de ${participant.nom} ?`)) return;
-    annulerParticipant(om.id, participant.id);
-    refresh();
-  };
-
-  /* COMMENTÉ (20/08/2026) — la suppression d'un OM est retirée du produit.
-
-     Raison : chaque OM consomme un numéro DÉFINITIF dès sa création
-     (0042/OM/EDC/DG/2026, tiré d'une plage réservée) et il est imprimable
-     immédiatement, avant même d'être confirmé. Supprimer l'enregistrement ne
-     rend pas le numéro : le document existerait sur papier sans plus exister
-     en base, ce qui est exactement le trou de traçabilité que la numérotation
-     doit empêcher. Un OM jamais confirmé est par ailleurs une information de
-     gestion, pas un déchet.
-
-     Remplacé par deux statuts, cf. MODELE-DONNEES.md §7 :
-       • REFUSE — l'admin écarte un OM non confirmé, AVEC un motif, et son
-         auteur est notifié de la raison. C'est la transition qui manquait :
-         annulerParticipant n'accepte que CONFIRME -> ANNULE, donc un OM en
-         attente ne pouvait être qu'effacé, faute d'alternative.
-       • EXPIRE — posé AUTOMATIQUEMENT quand la date de retour est passée et
-         que l'OM n'a jamais été confirmé. Personne n'a à faire le ménage.
-
-  const handleSupprimer = () => {
-    if (!confirm(`Supprimer l'OM en attente de ${participant.nom} ?`)) return;
-    supprimerParticipant(om.id, participant.id);
-    if (!getMockOM(om.id)) {
-      router.push("/om"); // c'était le dernier participant, la mission entière a disparu
-      return;
-    }
-    setIndex((i) => Math.max(0, i - 1));
-    refresh();
-  };
-  */
-
-  // COMMENTÉ (03/08/2026) — frais non gérés par l'appli pour l'instant.
-  // const handleAjouterFraisReel = () => {
-  //   if (!nouveauFrais.type || !nouveauFrais.montant) return;
-  //   ajouterFrais(om.id, participant.id, "reel", {
-  //     type: nouveauFrais.type,
-  //     montant: Number(nouveauFrais.montant),
-  //   });
-  //   setNouveauFrais({ type: "", montant: "" });
-  //   refresh();
-  // };
-
-  const handleDownload = async () => {
-    setDownloading(true);
-    setErreurTelechargement("");
-    try {
-      const res = await fetch("/api/generate-om", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...document,
-          dateDepart: formatDateFR(document.dateDepart),
-          dateRetour: formatDateFR(document.dateRetour),
-          dateEmission: formatDateFR(document.dateEmission),
-          visas: document.visas?.map((leg) => ({
-            ...leg,
-            departLe: formatDateFR(leg.departLe),
-            arriveeLe: formatDateFR(leg.arriveeLe),
-            departHeure: formatHeureFR(leg.departHeure),
-            arriveeHeure: formatHeureFR(leg.arriveeHeure),
-          })),
-        }),
-      });
-      if (!res.ok) throw new Error("Échec du téléchargement");
-
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = window.document.createElement("a");
-      a.href = url;
-      a.download = `ordre_mission_${participant.matricule}.docx`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      setErreurTelechargement(
-        "La génération du document a échoué. Réessaie, ou préviens l'équipe technique si ça persiste."
-      );
-    } finally {
-      setDownloading(false);
-    }
+  // Le fac-similé attend l'objet plat des balises du gabarit. `null` devient
+  // `undefined` : le type du document est optionnel partout, et un `null` s'y
+  // afficherait littéralement.
+  const apercu: OrdreMissionDocument = {
+    // Le COMPTEUR seul : `OMPreview` recompose « /EDC/DG/DRH/SDARHAS » comme le
+    // gabarit. Passer la valeur stockée afficherait l'année au milieu du suffixe.
+    numeroOM: numeroPourGabarit(document.numeroOM),
+    nom: document.nom,
+    prenoms: document.prenoms,
+    grade: document.grade ?? undefined,
+    affectation: document.affectation,
+    matricule: document.matricule,
+    situationFamille: document.situationFamille ?? undefined,
+    indice: document.indice ?? undefined,
+    destination: document.destination,
+    viaPassage: document.viaPassage ?? undefined,
+    // La MENTION est préfixée au motif, comme sur le document imprimé : le gabarit
+    // n'a pas de balise dédiée, et l'aperçu doit montrer ce qui sera imprimé.
+    motif: document.mentionStatut
+      ? `${document.mentionStatut}${document.motif ? ` — ${document.motif}` : ""}`
+      : document.motif ?? undefined,
+    financement: document.financement ?? undefined,
+    moyenTransport: document.moyenTransport ?? undefined,
+    dateDepart: document.dateDepart,
+    dateRetour: document.dateRetour,
+    nomEmetteur: document.nomEmetteur,
+    gradeEmetteur: document.gradeEmetteur ?? undefined,
+    fonctionEmetteur: document.fonctionEmetteur,
+    lieuEmission: document.lieuEmission,
+    dateEmission: document.dateEmission,
+    chapitre: document.chapitre ?? undefined,
+    article: document.article ?? undefined,
+    paragraphe: document.paragraphe ?? undefined,
+    exercice: document.exercice ?? undefined,
+    exerciceAnnee: document.exerciceAnnee ?? undefined,
+    visas: lignesVisasVierges(),
   };
 
   return (
-    <div className="min-h-full w-full bg-blue-50 py-10">
-      <div className="flex flex-col gap-4 py-10 px-6 sm:px-12 lg:px-20">
-        {/* MIS À JOUR (21/08/2026) — le commentaire précédent renvoyait au
-            « bouton Retour du Header », qui n'existe plus : il déduisait sa
-            destination de l'URL et se trompait dès qu'on arrivait ici depuis un
-            rapport. Le retour est maintenant posé par la page, avec une
-            destination nommée. */}
-        <RetourVers href="/om" libelle="Retour à la liste des ordres de mission" />
+    <div className={`${conteneurFormClass} gap-4`}>
+      <RetourVers href="/om" libelle="Retour à la liste des ordres de mission" />
+      <h1 className={titrePageClass}>Ordre de mission {courant.numeroOM}</h1>
 
-        <h1 className={titrePageClass}>Détails de l&apos;ordre de mission</h1>
-      </div>
-      {/* Navigation entre les documents si la mission concerne plusieurs employés */}
-      {om.participants.length > 1 && (
-        <div className="max-w-[794px] mx-auto px-4 flex items-center justify-between mb-4">
-          <button
-            onClick={() => setIndex((i) => Math.max(0, i - 1))}
-            disabled={indexClamped === 0}
-            className="py-2 px-4 rounded-full bg-white disabled:opacity-40 shadow-md shadow-blue-950/10"
-          >
-            ← Précédent
-          </button>
-          <span className="text-amber-700 font-medium">
-            Participant {indexClamped + 1} / {om.participants.length} — {participant.nom}
-          </span>
-          <button
-            onClick={() => setIndex((i) => Math.min(om.participants.length - 1, i + 1))}
-            disabled={indexClamped === om.participants.length - 1}
-            className="py-2 px-4 rounded-full bg-white disabled:opacity-40 shadow-md shadow-blue-950/10"
-          >
-            Suivant →
-          </button>
+      {/* Confirmation d'enregistrement. `existant` : le même brouillon a été
+          renvoyé (double-clic, reprise après coupure) et l'ULID a évité le
+          doublon — le dire évite que l'utilisateur croie avoir créé deux OM. */}
+      {cree && (
+        <p
+          role="status"
+          className="rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-900"
+        >
+          {cree === "existant"
+            ? "Cet ordre de mission avait déjà été enregistré : votre second envoi n'a créé aucun doublon."
+            : "Ordre de mission enregistré. Les numéros sont définitifs — le document peut partir à la signature."}
+        </p>
+      )}
+
+      {conflits && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <Info size={18} aria-hidden="true" className="mt-0.5 shrink-0" />
+          <p>
+            <strong>
+              {conflits} chevauchement{Number(conflits) > 1 ? "s" : ""} avec un ordre de
+              mission en attente.
+            </strong>{" "}
+            Aucun des deux n&apos;est confirmé, donc rien n&apos;est bloqué : c&apos;est
+            l&apos;administrateur qui arbitrera à la confirmation. L&apos;auteur de
+            l&apos;autre mission en a été averti.
+          </p>
         </div>
       )}
 
-      <div className="max-w-[794px] mx-auto px-4 mb-4 flex flex-col items-center gap-1">
-        <span
-          className={`px-3 py-1 rounded-full text-sm font-medium ${statutStyles[participant.statut]}`}
-        >
-          {participant.statut}
-        </span>
-        {participant.montantFraisFixeJournalier !== undefined && (
-          <span className="text-sm text-amber-700">
-            {participant.statutHierarchique} — Frais fixe journalier (indicatif) :{" "}
-            {participant.montantFraisFixeJournalier.toLocaleString("fr-FR")} FCFA
+      {/* Navigation entre participants — par matricule, pas par index. Chaque
+          entrée est un LIEN : la page reste serveur, l'adresse est partageable,
+          et le bouton « précédent » du navigateur fait ce qu'on attend. */}
+      {detail.participants.length > 1 && (
+        <nav aria-label="Participants de la mission" className={`${carteClass} flex flex-wrap gap-2`}>
+          {detail.participants.map((p) => {
+            const actif = p.matricule === courant.matricule;
+            return (
+              <Link
+                key={p.matricule}
+                href={`/om/${id}?participant=${encodeURIComponent(p.matricule)}`}
+                aria-current={actif ? "page" : undefined}
+                className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm
+                            transition-colors duration-200 ${
+                              actif
+                                ? "border-blue-600 bg-blue-600 text-white"
+                                : "border-blue-300 bg-white text-blue-900 hover:bg-blue-50"
+                            }`}
+              >
+                {p.nom} {p.prenoms}
+                {p.blocageMotif && (
+                  <AlertTriangle size={13} aria-label="en conflit" className="shrink-0" />
+                )}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
+
+      {/* Le résumé : ce qu'on veut savoir sans lire le fac-similé. */}
+      <div className={`${carteClass} flex flex-col gap-3`}>
+        <div className="flex flex-wrap items-center gap-3">
+          <BadgeStatut statut={courant.statut} bloque={bloque} />
+          <span className="text-sm text-slate-600">
+            Sur le document :{" "}
+            <strong className="font-mono">N° {numeroCommeImprime(courant.numeroOM)}</strong>
           </span>
-        )}
+        </div>
+
+        <dl className="grid grid-cols-1 gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
+          <Ligne terme="Agent">
+            {courant.nom} {courant.prenoms}{" "}
+            <span className="font-mono text-xs text-slate-500">{courant.matricule}</span>
+          </Ligne>
+          <Ligne terme="Fonction à l'émission">{courant.fonction}</Ligne>
+          <Ligne terme="Destination">{detail.paysDestination}, {detail.villeDestination}</Ligne>
+          <Ligne terme="Période">
+            du {formatDateFR(detail.dateDepart)} au {formatDateFR(detail.dateRetour)}
+            {duree !== null && ` (${duree} j.)`}
+          </Ligne>
+          <Ligne terme="Indemnité journalière">
+            {courant.montantFraisFixeJournalier === null ? (
+              <span className="text-amber-800">Non calculée</span>
+            ) : (
+              <>
+                {courant.montantFraisFixeJournalier.toLocaleString("fr-FR")} FCFA
+                {duree !== null && (
+                  <span className="text-slate-500">
+                    {" "}
+                    — soit{" "}
+                    {(courant.montantFraisFixeJournalier * duree).toLocaleString("fr-FR")} FCFA
+                  </span>
+                )}
+              </>
+            )}
+          </Ligne>
+          <Ligne terme="Motif">{detail.motif}</Ligne>
+        </dl>
+
+        {/* Le montant est FIGÉ à l'émission : le dire, sinon un écart avec le
+            barème courant passerait pour une erreur d'affichage. */}
+        <p className="text-xs text-slate-500">
+          L&apos;indemnité est celle du barème au jour de l&apos;émission. Elle n&apos;est
+          jamais recalculée : un montant qui changerait après signature ne
+          correspondrait plus au document signé.
+        </p>
       </div>
 
-      {/* Le fac-similé reste neutre / fidèle au document Word — lecture seule */}
-      <OMPreview om={document} />
-
-      <div className="max-w-[794px] mx-auto px-4 flex justify-center gap-4 flex-wrap mt-4">
-        <button
-          onClick={handleConfirmer}
-          disabled={participant.statut !== "EN_ATTENTE"}
-          className="py-3 px-8 rounded-full bg-green-600 hover:bg-green-700 disabled:bg-green-200
-                     disabled:cursor-not-allowed text-white shadow-xl shadow-blue-950/20
-                     hover:scale-105 transition-all duration-300"
-        >
-          Confirmer
-        </button>
-
-        <button
-          onClick={handleAnnuler}
-          disabled={participant.statut !== "CONFIRME"}
-          className="py-3 px-8 rounded-full bg-orange-600 hover:bg-orange-700 disabled:bg-orange-200
-                     disabled:cursor-not-allowed text-white shadow-xl shadow-blue-950/20
-                     hover:scale-105 transition-all duration-300"
-        >
-          Annuler
-        </button>
-
-        {/* COMMENTÉ (20/08/2026) — bouton « Supprimer » retiré : un OM ne se
-            supprime pas, son numéro étant déjà émis (cf. handleSupprimer plus
-            haut et MODELE-DONNEES.md §7). À remplacer par un bouton
-            « Refuser » réservé à l'admin, demandant un motif, une fois les
-            rôles implémentés.
-
-        <button
-          onClick={handleSupprimer}
-          disabled={participant.statut !== "EN_ATTENTE"}
-          className="py-3 px-8 rounded-full bg-red-600 hover:bg-red-700 disabled:bg-red-200
-                     disabled:cursor-not-allowed text-white shadow-xl shadow-blue-950/20
-                     hover:scale-105 transition-all duration-300"
-        >
-          Supprimer
-        </button>
-        */}
-
-        <button
-          onClick={handleDownload}
-          disabled={downloading}
-          className="py-3 px-8 rounded-full bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300
-                     disabled:cursor-not-allowed text-white shadow-xl shadow-blue-950/20
-                     hover:scale-105 transition-all duration-300"
-        >
-          {downloading ? "Génération…" : "Télécharger (Word)"}
-        </button>
-      </div>
-
-      {erreurTelechargement && (
-        <div className="max-w-[794px] mx-auto px-4 mt-4">
-          <div className="bg-red-100 border border-red-300 rounded-xl p-4 text-red-700 text-sm text-center">
-            {erreurTelechargement}
-          </div>
+      {/* Les actions sont réservées à l'administrateur. Un agent consulte et
+          télécharge — c'est la règle du DAL, répétée ici pour ne pas afficher des
+          boutons qui échoueraient tous. */}
+      {session.role === "ADMINISTRATEUR" && (
+        <div className={carteClass}>
+          <BlocActions
+            idOM={detail.id}
+            matricule={courant.matricule}
+            statut={courant.statut}
+            bloque={bloque}
+            expire={courant.statut === "EXPIRE"}
+          />
         </div>
       )}
 
-      {/* COMMENTÉ (03/08/2026) — décision : on ne touche pas au verso de
-          l'OM pour l'instant, les frais ne sont plus affichés/gérés ici.
-
-      <div className="max-w-[794px] mx-auto px-4 mt-8 flex flex-col gap-4">
-        <div className="bg-white/70 rounded-2xl shadow-md shadow-blue-950/10 p-6">
-          <h2 className="text-amber-600 font-semibold text-lg mb-3">Frais prévisionnels</h2>
-          {participant.fraisPrevisionnels.length === 0 && (
-            <p className="text-sm text-gray-500">Aucun frais prévisionnel renseigné.</p>
-          )}
-          <ul className="text-sm flex flex-col gap-1">
-            {participant.fraisPrevisionnels.map((f) => (
-              <li key={f.id}>
-                {f.type} — {f.montant.toLocaleString("fr-FR")} FCFA
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="bg-white/70 rounded-2xl shadow-md shadow-blue-950/10 p-6">
-          <h2 className="text-amber-600 font-semibold text-lg mb-3">Frais réels</h2>
-          <ul className="text-sm flex flex-col gap-1 mb-3">
-            {participant.fraisReels.map((f) => (
-              <li key={f.id}>
-                {f.type} — {f.montant.toLocaleString("fr-FR")} FCFA
-              </li>
-            ))}
-          </ul>
-          <div className="flex gap-2">
-            <input
-              placeholder="Type"
-              value={nouveauFrais.type}
-              onChange={(e) => setNouveauFrais((p) => ({ ...p, type: e.target.value }))}
-              className="px-3 py-2 rounded-lg border border-blue-200 bg-white text-sm flex-1"
-            />
-            <input
-              type="number"
-              placeholder="Montant"
-              value={nouveauFrais.montant}
-              onChange={(e) => setNouveauFrais((p) => ({ ...p, montant: e.target.value }))}
-              className="px-3 py-2 rounded-lg border border-blue-200 bg-white text-sm w-32"
-            />
-            <button
-              onClick={handleAjouterFraisReel}
-              className="py-2 px-4 rounded-full bg-blue-300 hover:bg-blue-200 shadow-md shadow-blue-950/20"
-            >
-              Ajouter
-            </button>
-          </div>
-        </div>
+      {/* Le fac-similé, fidèle au document Word — lecture seule. */}
+      <div className="mt-6">
+        <OMPreview om={apercu} />
       </div>
 
-      */}
+      <div className="mt-6 flex justify-center">
+        <BoutonTelecharger
+          idOM={detail.id}
+          matricule={courant.matricule}
+          numeroOM={courant.numeroOM}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Une paire terme/définition de la fiche. */
+function Ligne({ terme, children }: { terme: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <dt className="text-xs uppercase tracking-wide text-slate-500">{terme}</dt>
+      <dd className="text-blue-950">{children}</dd>
     </div>
   );
 }

@@ -1,34 +1,32 @@
-"use client";
-
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import CarteMonde from "@/components/CarteMonde";
-import Modal from "@/components/Modal";
-import { missionsParContinent, missionsParPaysDansContinent } from "@/lib/analytics";
-import type { Continent } from "@/lib/continents";
-import { titrePageClass, carteClass } from "@/lib/styles";
+import { lireDonneesRapports, lireReferentielPays } from "@/lib/data/rapports";
+import { titrePageClass } from "@/lib/styles";
 import RetourVers from "@/components/RetourVers";
-import { useEstMonte } from "@/lib/useEstMonte";
+import CarteInteractif from "./CarteInteractif";
 
-export default function CarteRapportPage() {
-  const router = useRouter();
-  const [continentOuvert, setContinentOuvert] = useState<Continent | null>(null);
-  // Garde-fou d'hydratation : les comptes dérivent de `mockOMs`, dont la valeur
-  // diffère entre serveur et client (cf. app/om/[id]/page.tsx). Ici l'écart
-  // toucherait aussi le REMPLISSAGE de la carte, pas seulement du texte.
-  const estMonte = useEstMonte();
+/**
+ * Missions par continent — composant SERVEUR depuis le 26/08/2026 (étape 14).
+ *
+ * L'écran précédent était client et lisait `mockOMs`, donc `localStorage` :
+ * les chiffres affichés étaient des données de démonstration propres à CHAQUE
+ * navigateur, jamais les missions réellement enregistrées. `AvertissementDonneesDemo`
+ * le signalait — l'encart n'a plus lieu d'être, les données viennent maintenant
+ * de la base (lib/data/rapports.ts) et sont commentées à ce titre plus bas.
+ *
+ * La partie interactive (ouverture du détail par pays) reste dans un composant
+ * client (`CarteInteractif`), qui reçoit les missions déjà lues ici en props.
+ *
+ * MODIFIÉ le 26/08/2026 : `referentielPays` (nom + continent de chaque pays,
+ * lus en base) s'ajoute aux missions — `CarteMonde.tsx` ne recalcule plus rien
+ * lui-même via des bibliothèques tierces, cf. son commentaire d'en-tête.
+ */
 
-  const comptesContinent = missionsParContinent();
-  const comptesParContinent = Object.fromEntries(
-    comptesContinent.map(({ cle, count }) => [cle, count])
-  ) as Partial<Record<Continent, number>>;
+export const metadata = { title: "Missions par continent — EDC OM" };
 
-  const comptesPays = continentOuvert ? missionsParPaysDansContinent(continentOuvert) : [];
-  const comptesParPays = Object.fromEntries(comptesPays.map(({ cle, count }) => [cle, count]));
-
-  const allerVersListe = (pays: string) => {
-    router.push(`/om?pays=${encodeURIComponent(pays)}`);
-  };
+export default async function CarteRapportPage() {
+  const [{ missions }, referentielPays] = await Promise.all([
+    lireDonneesRapports(),
+    lireReferentielPays(),
+  ]);
 
   return (
     <div className="min-h-full w-full bg-blue-50 flex flex-col gap-8 p-10">
@@ -39,56 +37,14 @@ export default function CarteRapportPage() {
 
       <h1 className={titrePageClass}>Missions par continent</h1>
 
-      <div className={`${carteClass} max-w-5xl`}>
-        <p className="text-sm text-gray-600">
-          Clique sur un continent pour voir le détail par pays.
-        </p>
-        <CarteMonde
-          comptesParContinent={comptesParContinent}
-          onClicContinent={(continent) => setContinentOuvert(continent)}
-        />
-        <div className="flex flex-wrap gap-4 text-sm">
-          {comptesContinent.map(({ cle, count }) => (
-            <button
-              key={cle}
-              onClick={() => setContinentOuvert(cle)}
-              className="px-3 py-1 rounded-full bg-blue-100 hover:bg-blue-200 text-blue-800"
-            >
-              {cle} — {count} mission{count > 1 ? "s" : ""}
-            </button>
-          ))}
-          {comptesContinent.length === 0 && estMonte && (
-            <p className="text-gray-500">Aucune mission enregistrée pour l&apos;instant.</p>
-          )}
-        </div>
-      </div>
+      {/* COMMENTÉ (26/08/2026) — l'avertissement disait que ces chiffres
+          venaient de mockOMs/localStorage, donc d'aucune mission réelle.
+          C'est faux depuis la bascule sur lib/data/rapports.ts ci-dessus :
+          l'afficher tromperait dans l'autre sens.
+      <AvertissementDonneesDemo />
+      */}
 
-      {continentOuvert && (
-        <Modal titre={`${continentOuvert} — détail par pays`} onFermer={() => setContinentOuvert(null)}>
-          <CarteMonde
-            continentAffiche={continentOuvert}
-            comptesParPays={comptesParPays}
-            onClicPays={allerVersListe}
-          />
-          <div className="flex flex-col gap-1 mt-4">
-            {comptesPays.map(({ cle, count }) => (
-              <button
-                key={cle}
-                onClick={() => allerVersListe(cle)}
-                className="flex justify-between px-3 py-2 rounded-lg hover:bg-blue-50 text-left text-sm"
-              >
-                <span>{cle}</span>
-                <span className="text-blue-700 font-medium">
-                  {count} mission{count > 1 ? "s" : ""}
-                </span>
-              </button>
-            ))}
-            {comptesPays.length === 0 && (
-              <p className="text-gray-500 text-sm">Aucune mission enregistrée sur ce continent.</p>
-            )}
-          </div>
-        </Modal>
-      )}
+      <CarteInteractif missions={missions} referentielPays={referentielPays} />
     </div>
   );
 }

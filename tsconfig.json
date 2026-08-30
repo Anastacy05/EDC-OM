@@ -10,16 +10,6 @@
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
-    // Autorise `import "./aide/client.mts"` dans les tests.
-    //
-    // Nécessaire parce que les deux côtés ont des exigences OPPOSÉES : Node
-    // (donc `tsx --test`) EXIGE l'extension dans un module ES, tandis que
-    // TypeScript la refuse par défaut (TS5097). Sans cette option, il faut
-    // choisir entre du code qui s'exécute et du code qui passe `tsc`.
-    //
-    // Elle exige `noEmit` — c'est le cas ci-dessus : TypeScript ne sert ici
-    // qu'à vérifier, c'est Next et tsx qui compilent.
-    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
@@ -32,6 +22,9 @@
         "name": "next"
       }
     ],
+    /* Indispensable, propre à ce projet — Next ne l'ajoute pas tout seul.
+       Tout le code importe via "@/lib/...", "@/app/...", "@/components/...".
+       Sans cette ligne, ces imports ne résolvent pas, même si Next démarre. */
     "paths": {
       "@/*": [
         "./*"
@@ -43,10 +36,7 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts",
-    "**/*.mts",
-    ".next-test/types/**/*.ts",
-    ".next-test/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

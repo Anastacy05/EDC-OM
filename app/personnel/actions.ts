@@ -26,6 +26,7 @@ import {
 import { prisma } from "@/lib/data/client";
 import { envoyerCourrielMaintenant } from "@/lib/data/mails";
 import { courrielInvitation } from "@/lib/mail/modeles";
+import { estEmailValide, normaliserEmail } from "@/lib/email";
 
 /**
  * Server Actions du personnel.
@@ -86,6 +87,114 @@ function message(echec: EchecEcriture): string {
 // Création et modification
 // ---------------------------------------------------------------------------
 
+/**
+ * Ouvre l'accès d'un employé : crée son compte et envoie le lien de mot de passe.
+ *
+ * Extraite de `actionEmettreInvitation` le 24/08/2026, parce que la création
+ * d'employé doit pouvoir faire exactement la même chose quand la case « ouvrir un
+ * accès » est cochée. Réécrire ce parcours en second exemplaire aurait garanti
+ * qu'un des deux finisse par diverger — or c'est celui qui envoie un secret par
+ * courriel, donc le dernier où l'on souhaite deux comportements.
+ *
+ * Renvoie l'état à afficher, jamais une exception : l'appelant décide s'il
+ * redirige ou s'il rend le message en place.
+ */
+async function ouvrirAcces(
+  matricule: string,
+  email: string
+): Promise<EtatFormulaireEmploye> {
+  try {
+    const employe = await prisma.employe.findUnique({
+      where: { matricule },
+      select: { actif: true, utilisateur: { select: { id: true, email: true } } },
+    });
+
+    if (!employe) return { erreur: message({ genre: "introuvable" }) };
+    if (!employe.actif) {
+      // Sinon on rouvrirait un accès qu'une désactivation vient de fermer.
+      return { erreur: "Cet employé est désactivé. Réactivez sa fiche avant de créer son compte." };
+    }
+
+    let jeton: string;
+    const reinitialisation = employe.utilisateur !== null;
+    if (employe.utilisateur) {
+      // Compte existant : on réémet, ce qui invalide les liens précédents. C'est
+      // le parcours « mot de passe oublié » en attendant un écran dédié.
+      jeton = await creerJetonMotDePasse(employe.utilisateur.id);
+    } else {
+      const cree = await creerCompte(email, "UTILISATEUR", matricule);
+      jeton = cree.jeton;
+    }
+
+    // `APP_URL` et non l'en-tête `Host` : celui-ci est fourni par le client, donc
+    // falsifiable. Un lien construit dessus pourrait pointer ailleurs.
+    const base = process.env.APP_URL ?? "http://localhost:3000";
+    const lien = `${base}/mot-de-passe/${encodeURIComponent(jeton)}`;
+
+    // L'adresse du compte l'emporte sur celle du formulaire en réémission : le
+    // champ est caché, mais s'y fier permettrait de détourner un lien vers une
+    // adresse choisie par l'appelant.
+    const destinataire = employe.utilisateur?.email ?? email;
+
+    const envoi = await envoyerCourrielMaintenant(
+      destinataire,
+      courrielInvitation({
+        lien,
+        validiteHeures: VALIDITE_JETON_HEURES,
+        reinitialisation,
+      })
+    );
+
+    refresh();
+
+    if (envoi.genre === "envoye") {
+      return {
+        succes: reinitialisation
+          ? `Nouveau lien envoyé à ${destinataire}. Les liens précédents ne sont plus valables.`
+          : `Compte créé. Le lien de mot de passe a été envoyé à ${destinataire}.`,
+      };
+    }
+
+    // Repli : le courriel n'est pas parti. Il reste en file et repartira au
+    // prochain balayage, mais on donne le lien tout de suite plutôt que de
+    // laisser l'employé attendre un message qui viendra peut-être.
+    const cause =
+      envoi.genre === "differe"
+        ? "Aucun serveur d'envoi n'est configuré."
+        : envoi.genre === "mauvaiseConfiguration"
+          ? // Distinct des autres échecs, et c'est le point : la cause est chez
+            // nous, pas chez le destinataire. Sans cette distinction, l'admin
+            // vérifierait l'adresse de l'employé au lieu du `.env`.
+            "Le serveur d'envoi refuse notre configuration (identifiants ou " +
+            "chiffrement). L'adresse de l'employé n'est pas en cause — signalez-le " +
+            "à l'administrateur technique."
+          : envoi.genre === "abandonne"
+            ? "L'envoi du courriel a définitivement échoué : l'adresse est peut-être inexacte."
+            : "L'envoi du courriel a échoué ; une nouvelle tentative aura lieu.";
+
+    return {
+      succes: `${
+        reinitialisation
+          ? "Nouveau lien émis. Les liens précédents ne sont plus valables."
+          : `Compte créé pour ${destinataire}.`
+      } ${cause}`,
+      lienInvitation: lien,
+    };
+  } catch (erreur) {
+    // Violation d'unicité sur `email` : l'adresse appartient à un autre compte.
+    if (
+      typeof erreur === "object" &&
+      erreur !== null &&
+      "code" in erreur &&
+      (erreur as { code: unknown }).code === "P2002"
+    ) {
+      return { erreur: "Cette adresse de courriel est déjà rattachée à un autre compte." };
+    }
+    console.error("[personnel] ouverture d'accès :", erreur);
+    return { erreur: message({ genre: "baseIndisponible" }) };
+  }
+}
+
 export async function actionCreerEmploye(
   _precedent: EtatFormulaireEmploye | undefined,
   formData: FormData
@@ -122,10 +231,35 @@ export async function actionCreerEmploye(
     return { erreur: message(resultat.echec) };
   }
 
+  /**
+   * Ouverture de l'accès, si la case est cochée.
+   *
+   * ⚠️ **La fiche est déjà écrite à ce point, et elle le reste.** Les deux gestes
+   * ne sont pas dans une même transaction, et c'est délibéré : l'envoi d'un
+   * courriel n'est pas annulable, donc l'englober dans une transaction donnerait
+   * l'illusion de l'atomicité — le message serait parti alors que la fiche aurait
+   * disparu. Mieux vaut une fiche sans accès, que l'administrateur rattrape en un
+   * clic depuis la fiche, qu'un lien de mot de passe vivant sans employé derrière.
+   *
+   * Le résultat voyage donc dans l'URL sous forme de CODE, pas de texte : la barre
+   * d'adresse est lue, copiée, journalisée. Elle ne portera jamais le lien.
+   */
+  let acces: string | null = null;
+  if (valide.emailContact && saisie.ouvrirCompte) {
+    const etat = await ouvrirAcces(valide.matricule, valide.emailContact);
+    acces = etat.erreur
+      ? "refuse"
+      : etat.lienInvitation
+        ? "differe"
+        : "envoye";
+  }
+
   // `redirect` lève une exception (`NEXT_REDIRECT`) : elle doit être appelée
   // HORS de tout try/catch, sinon le catch l'avale. D'où sa place ici, après
   // que tous les blocs précédents sont refermés.
-  redirect(`/personnel/${encodeURIComponent(valide.matricule)}?cree=1`);
+  redirect(
+    `/personnel/${encodeURIComponent(valide.matricule)}?cree=1${acces ? `&acces=${acces}` : ""}`
+  );
 }
 
 export async function actionModifierEmploye(
@@ -259,103 +393,12 @@ export async function actionEmettreInvitation(
   }
 
   const matricule = normaliserMatricule(String(formData.get("matricule") ?? ""));
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const email = normaliserEmail(String(formData.get("email") ?? ""));
 
   if (!email) return { champs: { matricule: "Adresse de courriel requise." } };
-  if (!email.includes("@") || email.length < 5) {
-    return { erreur: "Adresse de courriel invalide." };
-  }
+  if (!estEmailValide(email)) return { erreur: "Adresse de courriel invalide." };
 
-  try {
-    const employe = await prisma.employe.findUnique({
-      where: { matricule },
-      select: { actif: true, utilisateur: { select: { id: true, email: true } } },
-    });
-
-    if (!employe) return { erreur: message({ genre: "introuvable" }) };
-    if (!employe.actif) {
-      // Sinon on rouvrirait un accès qu'une désactivation vient de fermer.
-      return { erreur: "Cet employé est désactivé. Réactivez sa fiche avant de créer son compte." };
-    }
-
-    let jeton: string;
-    const reinitialisation = employe.utilisateur !== null;
-    if (employe.utilisateur) {
-      // Compte existant : on réémet, ce qui invalide les liens précédents. C'est
-      // le parcours « mot de passe oublié » en attendant un écran dédié.
-      jeton = await creerJetonMotDePasse(employe.utilisateur.id);
-    } else {
-      const cree = await creerCompte(email, "UTILISATEUR", matricule);
-      jeton = cree.jeton;
-    }
-
-    // `APP_URL` et non l'en-tête `Host` : celui-ci est fourni par le client, donc
-    // falsifiable. Un lien construit dessus pourrait pointer ailleurs.
-    const base = process.env.APP_URL ?? "http://localhost:3000";
-    const lien = `${base}/mot-de-passe/${encodeURIComponent(jeton)}`;
-
-    // L'adresse du compte l'emporte sur celle du formulaire en réémission : le
-    // champ est caché, mais s'y fier permettrait de détourner un lien vers une
-    // adresse choisie par l'appelant.
-    const destinataire = employe.utilisateur?.email ?? email;
-
-    const envoi = await envoyerCourrielMaintenant(
-      destinataire,
-      courrielInvitation({
-        lien,
-        validiteHeures: VALIDITE_JETON_HEURES,
-        reinitialisation,
-      })
-    );
-
-    refresh();
-
-    if (envoi.genre === "envoye") {
-      return {
-        succes: reinitialisation
-          ? `Nouveau lien envoyé à ${destinataire}. Les liens précédents ne sont plus valables.`
-          : `Compte créé. Le lien de mot de passe a été envoyé à ${destinataire}.`,
-      };
-    }
-
-    // Repli : le courriel n'est pas parti. Il reste en file et repartira au
-    // prochain balayage, mais on donne le lien tout de suite plutôt que de
-    // laisser l'employé attendre un message qui viendra peut-être.
-    const cause =
-      envoi.genre === "differe"
-        ? "Aucun serveur d'envoi n'est configuré."
-        : envoi.genre === "mauvaiseConfiguration"
-          ? // Distinct des autres échecs, et c'est le point : la cause est chez
-            // nous, pas chez le destinataire. Sans cette distinction, l'admin
-            // vérifierait l'adresse de l'employé au lieu du `.env`.
-            "Le serveur d'envoi refuse notre configuration (identifiants ou " +
-            "chiffrement). L'adresse de l'employé n'est pas en cause — signalez-le " +
-            "à l'administrateur technique."
-          : envoi.genre === "abandonne"
-            ? "L'envoi du courriel a définitivement échoué : l'adresse est peut-être inexacte."
-            : "L'envoi du courriel a échoué ; une nouvelle tentative aura lieu.";
-
-    return {
-      succes: `${
-        reinitialisation
-          ? "Nouveau lien émis. Les liens précédents ne sont plus valables."
-          : `Compte créé pour ${destinataire}.`
-      } ${cause}`,
-      lienInvitation: lien,
-    };
-  } catch (erreur) {
-    // Violation d'unicité sur `email` : l'adresse appartient à un autre compte.
-    if (
-      typeof erreur === "object" &&
-      erreur !== null &&
-      "code" in erreur &&
-      (erreur as { code: unknown }).code === "P2002"
-    ) {
-      return { erreur: "Cette adresse de courriel est déjà rattachée à un autre compte." };
-    }
-    console.error("[personnel] émission d'invitation :", erreur);
-    return { erreur: message({ genre: "baseIndisponible" }) };
-  }
+  return ouvrirAcces(matricule, email);
 }
 
 // Pas de réexport de constante ici : dans un fichier `"use server"`, chaque

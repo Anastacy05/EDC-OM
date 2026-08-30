@@ -118,6 +118,28 @@ export async function exigerAdministrateurOuEchouer(): Promise<Session> {
 }
 
 /**
+ * Session courante pour une ÉCRITURE, sans redirection.
+ *
+ * ── Pourquoi elle ne redirige pas, contrairement à `exigerSession` ───────────
+ *
+ * `redirect()` lève `NEXT_REDIRECT`. Appelée depuis une écriture, cette exception
+ * traverserait un `$transaction` ouvert et l'annulerait — ce qui est le bon
+ * résultat, mais obtenu par accident et sans message. Surtout, l'utilisateur
+ * perdrait sa saisie : la création d'un ordre de mission comporte une destination,
+ * un motif, des dates et une liste de participants, et la lui faire ressaisir
+ * parce que sa session a expiré pendant qu'il remplissait le formulaire serait
+ * une faute d'ergonomie.
+ *
+ * Rendre `null` laisse l'appelant répondre « votre session a expiré, reconnectez-
+ * vous » **en conservant le formulaire**. C'est la même logique que
+ * `exigerAdministrateurOuEchouer` ci-dessus, appliquée à l'authentification
+ * simple : la garde refuse toujours l'écriture, elle le dit seulement autrement.
+ */
+export async function exigerSessionOuEchouer(): Promise<Session | null> {
+  return lireSession();
+}
+
+/**
  * Vrai si la session appartient au compte FONDATEUR.
  *
  * ── Pourquoi la base et non le jeton ─────────────────────────────────────────
@@ -173,10 +195,16 @@ export async function exigerFondateurOuEchouer(): Promise<Session> {
 /**
  * Vrai si la session peut agir sur les données de ce matricule.
  *
- * Un administrateur voit tout ; un utilisateur ne voit que SES propres OM et
- * congés. Sans ce contrôle, changer un identifiant dans l'URL suffirait à lire
- * le dossier d'un collègue — c'est exactement le défaut d'autorisation que la
- * doc appelle à traiter dans la couche de données.
+ * Un administrateur voit tout ; un utilisateur ne voit que SON propre dossier
+ * personnel et SES congés. Sans ce contrôle, changer un identifiant dans l'URL
+ * suffirait à lire le dossier d'un collègue — c'est exactement le défaut
+ * d'autorisation que la doc appelle à traiter dans la couche de données.
+ *
+ * ⚠️ **Ne s'applique PLUS aux ordres de mission** (décidé le 24/08/2026). La
+ * lecture d'un OM est ouverte à tout compte authentifié, parce qu'un agent doit
+ * pouvoir télécharger le document d'un collègue dont il prépare la mission. Le
+ * dossier personnel, lui, reste cloisonné : y accéder n'aide personne à faire
+ * partir une mission. Voir `lib/data/om.ts` et §17.10 de MODELE-DONNEES.md.
  */
 export function peutAccederAuMatricule(session: Session, matricule: string): boolean {
   if (session.role === "ADMINISTRATEUR") return true;

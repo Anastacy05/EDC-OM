@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { useBrouillonNonEnregistre } from "@/contexts/brouillonContext";
+import Confirmation from "@/components/Confirmation";
 
 /**
  * Lien de retour, **propre à une page** et posé par elle.
@@ -52,27 +54,46 @@ export default function RetourVers({
 }) {
   const router = useRouter();
   const { actif, desactiver } = useBrouillonNonEnregistre();
+  const [question, setQuestion] = useState(false);
 
   const gererClic = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (!protegerBrouillon || !actif) return;
     e.preventDefault();
-    if (confirm("Des modifications n'ont pas été enregistrées. Quitter quand même ?")) {
-      desactiver();
-      router.push(href);
-    }
+    setQuestion(true);
   };
 
   return (
-    <Link
-      href={href}
-      onClick={gererClic}
-      className="inline-flex w-fit items-center gap-1.5 rounded-lg py-1.5 pr-3 text-sm
-                 font-medium text-blue-700 transition-colors duration-200 hover:text-blue-900
-                 hover:underline focus-visible:outline-none focus-visible:ring-2
-                 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-    >
-      <ArrowLeft size={16} aria-hidden="true" />
-      {libelle}
-    </Link>
+    <>
+      <Link
+        href={href}
+        onClick={gererClic}
+        className="inline-flex w-fit items-center gap-1.5 rounded-lg py-1.5 pr-3 text-sm
+                   font-medium text-blue-700 transition-colors duration-200 hover:text-blue-900
+                   hover:underline focus-visible:outline-none focus-visible:ring-2
+                   focus-visible:ring-blue-500 focus-visible:ring-offset-2 print:hidden"
+      >
+        <ArrowLeft size={16} aria-hidden="true" />
+        {libelle}
+      </Link>
+
+      {/* `confirm()` natif jusqu'au 24/08/2026. Remplacé pour les raisons que
+          `components/Confirmation.tsx` détaille — dont celle qui compte le plus
+          ici : sur certains navigateurs mobiles la boîte native ne s'affiche pas,
+          et le retour emportait alors la saisie sans avoir rien demandé. */}
+      <Confirmation
+        ouvert={question}
+        titre="Quitter sans enregistrer ?"
+        message="Des informations saisies ne sont pas enregistrées. Elles seront perdues."
+        libelleConfirmer="Quitter sans enregistrer"
+        libelleAnnuler="Rester sur la page"
+        danger
+        onAnnuler={() => setQuestion(false)}
+        onConfirmer={() => {
+          setQuestion(false);
+          desactiver();
+          router.push(href);
+        }}
+      />
+    </>
   );
 }

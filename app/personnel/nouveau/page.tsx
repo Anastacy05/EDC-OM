@@ -1,5 +1,5 @@
 import { getStatuts, getDepartements } from "@/lib/data/referentiels";
-import { titrePageClass } from "@/lib/styles";
+import { conteneurFormClass, titrePageClass } from "@/lib/styles";
 import RetourVers from "@/components/RetourVers";
 import FormulaireEmploye from "../FormulaireEmploye";
 
@@ -16,7 +16,7 @@ export default async function NouvelEmployePage() {
   const [statuts, departements] = await Promise.all([getStatuts(), getDepartements()]);
 
   return (
-    <div className="flex min-h-full w-full flex-col gap-6 bg-blue-50 p-6 sm:p-10">
+    <div className={conteneurFormClass}>
       <RetourVers href="/personnel" libelle="Retour à la liste du personnel" />
 
       <h1 className={titrePageClass}>Ajouter un employé</h1>

@@ -94,6 +94,18 @@ export default function FormulaireEmploye({
   // case AVANT toute soumission.
   const [estDetache, setEstDetache] = useState(fiche?.estDetache ?? false);
 
+  // Saisie libre de la direction : vrai quand la fiche relue n'a pas de code de
+  // référentiel mais un libellé propre. Dérivé de la fiche et non d'un défaut
+  // fixe, sinon rouvrir une fiche en direction libre afficherait la liste et
+  // écraserait le libellé au premier enregistrement.
+  const [directionLibre, setDirectionLibre] = useState(
+    fiche?.codeDepartement === null && Boolean(fiche?.departementLibre)
+  );
+
+  // Ouverture d'un accès : pilote l'obligation du courriel et l'affichage de la
+  // mention. État local, parce qu'il doit réagir à la case AVANT la soumission.
+  const [ouvrirCompte, setOuvrirCompte] = useState(false);
+
   /** Message d'erreur d'un champ, ou `undefined`. */
   const err = (champ: keyof NonNullable<EtatFormulaireEmploye["champs"]>) =>
     etat?.champs?.[champ];
@@ -175,13 +187,12 @@ export default function FormulaireEmploye({
 
           <div className="flex flex-col gap-1">
             <label htmlFor="situationFamille" className="text-sm font-medium text-blue-900">
-              Situation de famille <Requis />
+              Situation de famille
             </label>
             <select
               id="situationFamille"
               name="situationFamille"
               defaultValue={fiche?.situationFamille ?? ""}
-              required
               {...liaison("situationFamille")}
             >
               <option value="">—</option>
@@ -298,32 +309,64 @@ export default function FormulaireEmploye({
             <label htmlFor="codeDepartement" className="text-sm font-medium text-blue-900">
               Direction <Requis />
             </label>
-            <select
-              id="codeDepartement"
-              name="codeDepartement"
-              defaultValue={fiche?.codeDepartement ?? ""}
-              required
-              {...liaison("codeDepartement")}
+
+            {/* Deux modes pour un même renseignement : le référentiel, ou une
+                saisie libre quand la direction manque à la liste. Un seul champ
+                est monté à la fois — les deux enverraient deux valeurs, et le
+                serveur devrait deviner laquelle compte. */}
+            {directionLibre ? (
+              <input
+                id="departementLibre"
+                name="departementLibre"
+                defaultValue={fiche?.departementLibre ?? ""}
+                required
+                maxLength={150}
+                placeholder="Nom complet de la direction"
+                {...liaison("departementLibre")}
+              />
+            ) : (
+              <select
+                id="codeDepartement"
+                name="codeDepartement"
+                defaultValue={fiche?.codeDepartement ?? ""}
+                required
+                {...liaison("codeDepartement")}
+              >
+                <option value="">—</option>
+                {departements.map((d) => (
+                  <option key={d.valeur} value={d.valeur}>
+                    {d.libelle}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setDirectionLibre((actif) => !actif)}
+              className="self-start text-xs font-medium text-blue-700 underline hover:no-underline
+                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
-              <option value="">—</option>
-              {departements.map((d) => (
-                <option key={d.valeur} value={d.valeur}>
-                  {d.libelle}
-                </option>
-              ))}
-            </select>
+              {directionLibre
+                ? "Choisir dans la liste"
+                : "Saisir une direction absente de la liste"}
+            </button>
+
+            {/* Les deux messages sont rendus : la validation ne sait pas lequel
+                des deux champs est affiché, elle porte « Direction requise » sur
+                `departementLibre`. */}
             <MessageErreur id="err-codeDepartement" message={err("codeDepartement")} />
+            <MessageErreur id="err-departementLibre" message={err("departementLibre")} />
           </div>
 
           <div className="flex flex-col gap-1">
             <label htmlFor="grade" className="text-sm font-medium text-blue-900">
-              Grade <Requis />
+              Grade
             </label>
             <input
               id="grade"
               name="grade"
-              defaultValue={fiche?.grade}
-              required
+              defaultValue={fiche?.grade ?? ""}
               maxLength={100}
               placeholder="Ingénieur"
               {...liaison("grade")}
@@ -434,6 +477,66 @@ export default function FormulaireEmploye({
               règle est incalculable.
             </p>
             <MessageErreur id="err-joursCongeOrigine" message={err("joursCongeOrigine")} />
+          </div>
+        )}
+      </fieldset>
+
+      {/* ── Accès ───────────────────────────────────────────────────────────── */}
+      <fieldset className={carteClass}>
+        <legend className={legendClass}>Accès à l&apos;application</legend>
+
+        <div className="flex flex-col gap-1">
+          <label htmlFor="emailContact" className="text-sm font-medium text-blue-900">
+            Adresse de courriel {ouvrirCompte && <Requis />}
+          </label>
+          <input
+            id="emailContact"
+            name="emailContact"
+            type="email"
+            defaultValue={fiche?.emailContact ?? ""}
+            required={ouvrirCompte}
+            maxLength={255}
+            placeholder="prenom.nom@edc.cm"
+            autoComplete="off"
+            className={`${liaison("emailContact").className} max-w-md`}
+            aria-invalid={liaison("emailContact")["aria-invalid"]}
+            aria-describedby={
+              err("emailContact") ? "err-emailContact" : "aide-emailContact"
+            }
+          />
+          <p id="aide-emailContact" className="text-xs text-slate-600">
+            Notée sur la fiche. Elle préremplira la création du compte le jour où
+            elle aura lieu — la renseigner n&apos;ouvre aucun accès.
+          </p>
+          <MessageErreur id="err-emailContact" message={err("emailContact")} />
+        </div>
+
+        {/* La case n'apparaît qu'en création. En modification, le compte se gère
+            depuis la fiche (BlocCompte), qui sait déjà s'il existe, réémettre un
+            lien et fermer l'accès — la dupliquer ici donnerait deux chemins pour
+            un même geste, dont un ignorant l'état réel. */}
+        {!modification && (
+          <div className="flex flex-col gap-2">
+            <label className="flex items-start gap-2 text-sm text-blue-900">
+              <input
+                type="checkbox"
+                name="ouvrirCompte"
+                checked={ouvrirCompte}
+                onChange={(e) => setOuvrirCompte(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-blue-500"
+              />
+              Ouvrir un accès à l&apos;application pour cet employé
+            </label>
+
+            {/* La mention n'apparaît que cochée, comme demandé : affichée en
+                permanence, elle décrirait une conséquence qui n'a pas lieu. */}
+            {ouvrirCompte && (
+              <p className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+                Cet employé pourra utiliser l&apos;application pour créer des ordres de
+                mission. À l&apos;enregistrement, un courriel partira à l&apos;adresse
+                ci-dessus pour qu&apos;il définisse son mot de passe.
+              </p>
+            )}
           </div>
         )}
       </fieldset>

@@ -125,6 +125,55 @@ export const getZoneDuPaysFr = cache(async (nomPaysFr: string): Promise<Zone | n
 });
 
 /**
+ * Pays destinables sous forme d'options, `valeur` = code ISO.
+ *
+ * Distincte de `getNomsPays` : un filtre de liste doit envoyer dans l'URL une
+ * valeur STABLE et courte. Le nom français ne l'est pas — il contient des accents
+ * et des espaces, et une correction d'orthographe au référentiel casserait tous les
+ * liens partagés. Le code ISO est aussi ce que porte `ordre_mission.code_pays`,
+ * donc le filtre se compare sans traduction.
+ */
+export const getPaysOptions = cache(async (): Promise<OptionReferentiel[]> => {
+  const lignes = await prisma.pays.findMany({
+    orderBy: { nomFr: "asc" },
+    select: { codeIso: true, nomFr: true },
+  });
+  // `code_iso` est un CHAR(2) : PostgreSQL le complète à droite. Sans `trim`, la
+  // valeur du `<option>` porterait un espace et ne correspondrait plus au
+  // paramètre relu depuis l'URL.
+  return lignes.map((p) => ({ valeur: p.codeIso.trim(), libelle: p.nomFr }));
+});
+
+/**
+ * Code ISO **et** zone d'un pays, à partir de son nom français.
+ *
+ * ── Pourquoi cette fonction en plus de `getZoneDuPaysFr` ─────────────────────
+ *
+ * La création d'un ordre de mission a besoin des DEUX : `ordre_mission.code_pays`
+ * est une clé étrangère vers `pays.code_iso`, tandis que la zone détermine
+ * l'indemnité. Les obtenir par deux appels ferait deux requêtes pour lire deux
+ * colonnes de la même ligne — et surtout ouvrirait la possibilité qu'elles
+ * portent sur des lignes différentes si la classification changeait entre les
+ * deux.
+ *
+ * `null` si le nom n'est pas au référentiel. L'appelant doit alors refuser :
+ * sans zone, l'indemnité serait devinée, et fausse sur un document signé.
+ */
+export const getPaysParNomFr = cache(
+  async (nomPaysFr: string): Promise<{ codeIso: string; zone: Zone } | null> => {
+    if (!nomPaysFr) return null;
+    const pays = await prisma.pays.findFirst({
+      where: { nomFr: nomPaysFr },
+      select: { codeIso: true, codeZone: true },
+    });
+    // `code_iso` est un CHAR(2) : PostgreSQL le complète à droite. `trim()` évite
+    // qu'un espace parasite se retrouve dans une comparaison JavaScript, qui
+    // n'ignore pas les blancs de fin comme le fait `bpchar`.
+    return pays ? { codeIso: pays.codeIso.trim(), zone: pays.codeZone as Zone } : null;
+  }
+);
+
+/**
  * Montant de l'indemnité journalière pour un couple (statut, zone).
  *
  * `undefined` si le couple n'existe pas au barème. L'appelant NE DOIT PAS

@@ -188,8 +188,8 @@
    Deux jeux, séparés parce qu'ils n'ont pas le même coût.
 
    ```bash
-   npm test         # validation employé, modèles de courriel, classement des échecs SMTP
-   npm run test:e2e # connexion, invitation, recherche, pagination, motif de sortie, rôles
+   npm test         # numéro d'OM, validation employé et OM, modèles de courriel, échecs SMTP
+   npm run test:e2e # connexion, invitation, recherche, pagination, rôles, ordres de mission
    ```
 
    Les tests de bout en bout démarrent un vrai serveur, un vrai serveur SMTP jetable, et

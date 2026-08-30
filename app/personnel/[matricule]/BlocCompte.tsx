@@ -11,6 +11,7 @@ import {
   boutonSecondaire,
   TAILLE_ICONE,
 } from "@/lib/styles";
+import BoutonConfirme from "@/components/BoutonConfirme";
 
 /**
  * Bloc « compte d'accès » de la fiche employé.
@@ -98,10 +99,15 @@ export default function BlocCompte({
             <label htmlFor="email" className="text-sm font-medium text-blue-900">
               Adresse professionnelle
             </label>
+            {/* Prérempli avec l'adresse notée sur la fiche, et MODIFIABLE : c'est
+                exactement ce à quoi `emailContact` sert. Un `defaultValue` et non
+                `value`, sinon le champ serait figé sur une adresse peut-être
+                périmée depuis l'embauche. */}
             <input
               id="email"
               name="email"
               type="email"
+              defaultValue={fiche.emailContact ?? ""}
               required
               placeholder="prenom.nom@edc.cm"
               className={`${inputClass} max-w-sm`}
@@ -114,15 +120,21 @@ export default function BlocCompte({
             accès vers une adresse non prouvée. */}
         {fiche.compte && <input type="hidden" name="email" value={fiche.compte.email} />}
 
-        <button
-          type="submit"
-          disabled={enCours || !fiche.actif}
-          className={boutonSecondaire}
-          title={
-            fiche.actif
-              ? undefined
-              : "Employé désactivé : réactivez sa fiche avant de créer son compte."
+        <BoutonConfirme
+          titre={
+            fiche.compte
+              ? "Envoyer un nouveau lien de mot de passe ?"
+              : "Créer le compte et ouvrir l'accès ?"
           }
+          message={
+            fiche.compte
+              ? "Les liens précédemment envoyés cesseront immédiatement d'être valables, y compris celui que l'employé n'aurait pas encore utilisé."
+              : "Un compte utilisateur sera créé et un courriel partira à l'adresse ci-dessus pour que l'employé définisse son mot de passe. Il pourra alors se connecter et créer des ordres de mission."
+          }
+          libelleConfirmer={fiche.compte ? "Envoyer le nouveau lien" : "Créer le compte"}
+          disabled={!fiche.actif}
+          enCours={enCours}
+          className={boutonSecondaire}
         >
           {fiche.compte ? (
             <KeyRound size={TAILLE_ICONE} aria-hidden="true" />
@@ -134,7 +146,15 @@ export default function BlocCompte({
             : fiche.compte
               ? "Envoyer un nouveau lien de mot de passe"
               : "Créer le compte et envoyer le lien"}
-        </button>
+        </BoutonConfirme>
+
+        {/* L'employé désactivé : le bouton est verrouillé, il faut dire pourquoi.
+            Un `title` seul ne se lit ni au clavier ni sur mobile. */}
+        {!fiche.actif && (
+          <p className="text-xs text-slate-600">
+            Employé désactivé : réactivez sa fiche avant de créer son compte.
+          </p>
+        )}
 
         {/* L'attente est réelle — le dialogue SMTP prend une seconde ou deux —
             et l'action l'assume pour pouvoir dire la vérité sur l'envoi. Le

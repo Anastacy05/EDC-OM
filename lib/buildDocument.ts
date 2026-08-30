@@ -20,7 +20,16 @@ const LEG_VIDE: VisaLeg = {
 // disparaître le tableau du document Word, ce qui est l'inverse du but.
 const NB_LIGNES_VISAS_MIN = 3;
 
-function lignesVisasVierges(): VisaLeg[] {
+/**
+ * Trois lignes de visa vierges.
+ *
+ * Exportée depuis le 23/08/2026 : l'aperçu de `/om/[id]` construit maintenant son
+ * document depuis la BASE (`OMDocumentDTO`) et non depuis les types de
+ * démonstration, il ne passe donc plus par `buildDocumentForParticipant`. Sans cet
+ * export, il devrait recréer les lignes vierges — et le jour où l'on passerait à
+ * quatre, l'écran et le document imprimé n'en montreraient pas le même nombre.
+ */
+export function lignesVisasVierges(): VisaLeg[] {
   return Array.from({ length: NB_LIGNES_VISAS_MIN }, () => ({ ...LEG_VIDE }));
 }
 

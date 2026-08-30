@@ -21,6 +21,7 @@ import {
   boutonSecondaire,
   TAILLE_ICONE,
 } from "@/lib/styles";
+import BoutonConfirme from "@/components/BoutonConfirme";
 
 /**
  * Bloc « activation » de la fiche employé : désactivation motivée, réactivation.
@@ -86,10 +87,16 @@ export default function BlocActivation({ fiche }: { fiche: EmployeFiche }) {
           </p>
           <form action={action}>
             <input type="hidden" name="matricule" value={fiche.matricule} />
-            <button type="submit" disabled={enCours} className={boutonSecondaire}>
+            <BoutonConfirme
+              titre="Réactiver cet employé ?"
+              message="Son accès rouvrira tel qu'il était, sans réinitialisation du mot de passe, et le motif de sortie sera effacé."
+              libelleConfirmer="Réactiver"
+              enCours={enCours}
+              className={boutonSecondaire}
+            >
               <RotateCcw size={TAILLE_ICONE} aria-hidden="true" />
               {enCours ? "Réactivation…" : "Réactiver"}
-            </button>
+            </BoutonConfirme>
           </form>
         </>
       )}
@@ -228,10 +235,17 @@ function FormulaireDesactivation({
           </div>
         )}
 
-        <button type="submit" disabled={enCours} className={`${boutonDanger} self-start`}>
+        <BoutonConfirme
+          titre="Désactiver cet employé ?"
+          message="Son accès à l'application sera fermé et il ne pourra plus être choisi pour une mission. La fiche et l'historique des ordres de mission restent intacts — c'est une extinction, pas une suppression, et elle se défait par une réactivation."
+          libelleConfirmer="Désactiver"
+          danger
+          enCours={enCours}
+          className={`${boutonDanger} self-start`}
+        >
           <CircleSlash size={TAILLE_ICONE} aria-hidden="true" />
           {enCours ? "Désactivation…" : "Désactiver"}
-        </button>
+        </BoutonConfirme>
       </form>
     </>
   );
