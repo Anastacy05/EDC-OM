@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "tsx --conditions=react-server --import dotenv/config --test tests/*.test.mts",
     "test:e2e": "tsx --conditions=react-server --import dotenv/config tests/aide/preparer.mts && tsx --conditions=react-server --import dotenv/config --test-concurrency=1 --test tests/e2e/*.test.mts",
-    "test:tout": "npm test && npm run test:e2e"
+    "test:tout": "npm test && npm run test:e2e",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.1",
